@@ -3,35 +3,49 @@ import { persist } from 'zustand/middleware';
 
 export const useAuthStore = create(
   persist(
-    (set) => ({
+    (set, get) => ({
       usuario: null,
       token: null,
       isAuthenticated: false,
 
+      // === LOGIN ===
       login: (usuario, token) => {
-        localStorage.setItem('token', token);
-        localStorage.setItem('usuario', JSON.stringify(usuario));
-        set({ usuario, token, isAuthenticated: true });
+        set({
+          usuario,
+          token,
+          isAuthenticated: true,
+        });
       },
 
+      // === LOGOUT ===
       logout: () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('usuario');
-        set({ usuario: null, token: null, isAuthenticated: false });
+        set({
+          usuario: null,
+          token: null,
+          isAuthenticated: false,
+        });
       },
 
-      actualizarUsuario: (usuario) => {
-        localStorage.setItem('usuario', JSON.stringify(usuario));
-        set({ usuario });
+      // === ACTUALIZAR PERFIL ===
+      actualizarUsuario: (usuarioActualizado) => {
+        set({
+          usuario: usuarioActualizado,
+        });
       },
 
+      // === VALIDAR ROL DE ADMIN ===
       esAdmin: () => {
-        const state = useAuthStore.getState();
-        return state.usuario?.rol === 'admin';
+        const usuario = get().usuario;
+        return usuario?.rol === 'admin';
       },
     }),
     {
       name: 'auth-storage',
+      partialize: (state) => ({
+        usuario: state.usuario,
+        token: state.token,
+        isAuthenticated: state.isAuthenticated,
+      }),
     }
   )
 );

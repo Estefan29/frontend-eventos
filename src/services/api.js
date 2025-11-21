@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:4000/api';
+const API_URL = 'http://localhost:4000/api'; // ← Verifica que esta URL sea correcta
 
 const api = axios.create({
   baseURL: API_URL,
@@ -28,7 +28,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('usuario');
-      window.location.href = '/login';
+      window.location.href = '/';
     }
     return Promise.reject(error);
   }
@@ -38,6 +38,7 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (data) => api.post('/auth/login', data),
   registro: (data) => api.post('/auth/registro', data),
+  recuperarPassword: (data) => api.post('/auth/recuperar-password', data),
   perfil: () => api.get('/auth/perfil'),
   actualizarPerfil: (data) => api.put('/auth/perfil', data),
   cambiarPassword: (data) => api.put('/auth/cambiar-password', data),
