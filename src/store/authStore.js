@@ -10,12 +10,16 @@ export const useAuthStore = create(
 
       // === LOGIN ===
       login: (usuario, token) => {
-        set({
+      // Guardar en localStorage también por si acaso
+      localStorage.setItem('token', token);
+      localStorage.setItem('usuario', JSON.stringify(usuario));
+      
+      set({
           usuario,
           token,
           isAuthenticated: true,
         });
-      },
+    },
 
       // === LOGOUT ===
       logout: () => {

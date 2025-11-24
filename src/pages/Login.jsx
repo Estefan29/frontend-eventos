@@ -1,14 +1,20 @@
 import { useState } from 'react';
 import { Calendar, Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { authAPI } from '../services/api';
+//import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
-  const [vista, setVista] = useState('login'); // 'login', 'registro', 'recuperar'
+  const { login } = useAuthStore(); // ✅ Función para actualizar el estado de autenticación
+  
+  const [vista, setVista] = useState('login');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [emailValido, setEmailValido] = useState(true);
-  
+  //const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
     nombre: '',
     correo: '',
@@ -16,15 +22,10 @@ const Login = () => {
     rol: 'estudiante'
   });
 
-  // Validar si el correo existe (verificación DNS)
   const validarCorreoReal = async (email) => {
-    // Validación básica de formato
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return false;
-    }
+    if (!emailRegex.test(email)) return false;
 
-    // Lista de dominios comunes válidos (puedes expandirla)
     const dominiosValidos = [
       'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com',
       'usc.edu.co', 'estudiantes.usc.edu.co', 'icloud.com',
@@ -32,19 +33,11 @@ const Login = () => {
     ];
 
     const dominio = email.split('@')[1]?.toLowerCase();
-    
-    // Verificar si el dominio está en la lista de válidos
     const dominioValido = dominiosValidos.some(d => dominio === d || dominio?.endsWith(d));
-    
-    // Validar dominios obviamente falsos
     const dominiosInvalidos = ['test.com', 'fake.com', 'example.com', 'prueba.com', 'temporal.com'];
     const esDominioInvalido = dominiosInvalidos.some(d => dominio?.includes(d));
 
-    if (esDominioInvalido) {
-      return false;
-    }
-
-    // Si tiene un dominio válido conocido o parece legítimo
+    if (esDominioInvalido) return false;
     return dominioValido || dominio?.includes('.');
   };
 
@@ -61,82 +54,80 @@ const Login = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
+  e.preventDefault();
+  setLoading(true);
+  setError('');
+  setSuccess('');
 
-    // Validar correo antes de enviar
-    if (vista === 'registro' || vista === 'recuperar') {
-      const esValido = await validarCorreoReal(formData.correo);
-      if (!esValido) {
-        setError('Por favor ingresa un correo electrónico válido y existente');
-        setLoading(false);
-        return;
-      }
-    }
-
-    try {
-      if (vista === 'login') {
-        // Simular login (reemplaza con tu API real)
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // Simular respuesta exitosa
-        console.log('Login exitoso:', formData);
-        setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
-        
-        // Aquí irá tu lógica real:
-        // const response = await authAPI.login({
-        //   correo: formData.correo,
-        //   contraseña: formData.contraseña
-        // });
-        // login(response.data.usuario, response.data.token);
-        
-      } else if (vista === 'registro') {
-        // Validaciones adicionales para registro
-        if (formData.nombre.length < 3) {
-          throw new Error('El nombre debe tener al menos 3 caracteres');
-        }
-        if (formData.contraseña.length < 6) {
-          throw new Error('La contraseña debe tener al menos 6 caracteres');
-        }
-        
-        // Simular registro
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        console.log('Registro exitoso:', formData);
-        setSuccess('¡Cuenta creada exitosamente! Inicia sesión para continuar.');
-        
-        setTimeout(() => {
-          setVista('login');
-          setSuccess('');
-        }, 2000);
-        
-        // Aquí irá tu lógica real:
-        // const response = await authAPI.registro(formData);
-        // login(response.data.usuario, response.data.token);
-        
-      } else if (vista === 'recuperar') {
-        // Simular recuperación
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setSuccess('¡Correo de recuperación enviado! Revisa tu bandeja de entrada.');
-        
-        setTimeout(() => {
-          setVista('login');
-          setSuccess('');
-        }, 3000);
-      }
-    } catch (err) {
-      setError(err.message || 'Error al procesar la solicitud. Intenta nuevamente.');
-    } finally {
+  if (vista === 'registro' || vista === 'recuperar') {
+    const esValido = await validarCorreoReal(formData.correo);
+    if (!esValido) {
+      setError('Por favor ingresa un correo electrónico válido y existente');
       setLoading(false);
+      return;
     }
-  };
+  }
+
+  try {
+    if (vista === 'login') {
+      // ✅ LLAMADA REAL AL BACKEND
+      const response = await authAPI.login({
+        correo: formData.correo,
+        contraseña: formData.contraseña
+      });
+
+      console.log('Respuesta del backend:', response.data); // Para debugging
+
+      // ✅ EXTRAER USUARIO Y TOKEN
+      const { usuario, token } = response.data;
+
+      // ✅ GUARDAR EN LOCALSTORAGE PRIMERO
+      localStorage.setItem('token', token);
+      localStorage.setItem('usuario', JSON.stringify(usuario));
+
+      // ✅ LUEGO ACTUALIZAR EL STORE
+      login(usuario, token);
+      
+      setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
+      
+    } else if (vista === 'registro') {
+      if (formData.nombre.length < 3) {
+        throw new Error('El nombre debe tener al menos 3 caracteres');
+      }
+      if (formData.contraseña.length < 6) {
+        throw new Error('La contraseña debe tener al menos 6 caracteres');
+      }
+      
+      // ✅ REGISTRO CON BACKEND
+      await authAPI.registro(formData);
+      setSuccess('¡Cuenta creada exitosamente! Inicia sesión para continuar.');
+      
+      setTimeout(() => {
+        setVista('login');
+        setSuccess('');
+      }, 2000);
+      
+    } else if (vista === 'recuperar') {
+      // ✅ RECUPERAR CONTRASEÑA
+      await authAPI.recuperarPassword({ correo: formData.correo });
+      setSuccess('¡Correo de recuperación enviado! Revisa tu bandeja de entrada.');
+      
+      setTimeout(() => {
+        setVista('login');
+        setSuccess('');
+      }, 3000);
+    }
+  } catch (err) {
+    console.error('Error completo:', err); // Para debugging
+    setError(err.response?.data?.mensaje || err.message || 'Error al procesar la solicitud');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    
-    // Limpiar errores al escribir
     if (error) setError('');
     if (name === 'correo' && !emailValido) setEmailValido(true);
   };
@@ -419,16 +410,6 @@ const Login = () => {
                 />
               )}
             </div>
-            {!emailValido && formData.correo && (
-              <p style={{ 
-                fontSize: '0.75rem', 
-                color: '#ef4444', 
-                marginTop: '6px',
-                marginLeft: '4px'
-              }}>
-                Ingresa un correo electrónico válido y existente
-              </p>
-            )}
           </div>
 
           {/* Contraseña (no en recuperar) */}
@@ -500,20 +481,10 @@ const Login = () => {
                   {showPassword ? <EyeOff size={20} color="#6b7280" /> : <Eye size={20} color="#6b7280" />}
                 </button>
               </div>
-              {vista === 'registro' && (
-                <p style={{ 
-                  fontSize: '0.75rem', 
-                  color: '#6b7280', 
-                  marginTop: '6px',
-                  marginLeft: '4px'
-                }}>
-                  Mínimo 6 caracteres
-                </p>
-              )}
             </div>
           )}
 
-          {/* ¿Olvidaste tu contraseña? (solo en login) */}
+          {/* ¿Olvidaste tu contraseña? */}
           {vista === 'login' && (
             <div style={{ textAlign: 'right', marginBottom: '20px' }}>
               <button
@@ -578,7 +549,6 @@ const Login = () => {
             </div>
           )}
 
-          {/* Submit Button */}
           <button
             onClick={handleSubmit}
             disabled={loading || (!emailValido && formData.correo)}
@@ -630,7 +600,7 @@ const Login = () => {
               <>
                 {vista === 'login' && 'Iniciar Sesión'}
                 {vista === 'registro' && 'Crear Cuenta'}
-                {vista === 'recuperar' && 'Enviar Enlace de Recuperación'}
+                {vista === 'recuperar' && 'Enviar Enlace'}
               </>
             )}
           </button>

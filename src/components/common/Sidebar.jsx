@@ -1,17 +1,63 @@
-import { Calendar, Home, Users, UserCheck, CreditCard, Settings, LogOut } from 'lucide-react';
+import { Calendar, Home, Users, UserCheck, CreditCard, Settings, LogOut, Ticket } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
-const Sidebar = ({ vista, setVista, showSidebar }) => {
+const Sidebar = ({ vista, setVista, showSidebar, esAdmin, tieneAccesoCompleto, esUsuarioRegular }) => {
   const { usuario, logout } = useAuthStore();
 
+  // ✅ Definir menú según roles
   const menuItems = [
-    { icon: Home, label: 'Dashboard', vista: 'dashboard' },
-    { icon: Calendar, label: 'Eventos', vista: 'eventos' },
-    { icon: Users, label: 'Usuarios', vista: 'usuarios' },
-    { icon: UserCheck, label: 'Inscripciones', vista: 'inscripciones' },
-    { icon: CreditCard, label: 'Pagos', vista: 'pagos' },
-    { icon: Settings, label: 'Configuración', vista: 'configuracion' },
+    { 
+      icon: Home, 
+      label: 'Dashboard', 
+      vista: 'dashboard',
+      roles: ['admin', 'estudiante', 'profesor', 'administrativo', 'externo']
+    },
+    { 
+      icon: Calendar, 
+      label: 'Eventos', 
+      vista: 'eventos',
+      roles: ['admin', 'estudiante', 'profesor', 'administrativo', 'externo']
+    },
+    // ✅ "Mis Inscripciones" para usuarios regulares
+    { 
+      icon: Ticket, 
+      label: 'Mis Inscripciones', 
+      vista: 'mis-inscripciones',
+      roles: ['estudiante', 'profesor', 'externo'],
+      badge: 'Nuevo'
+    },
+    { 
+      icon: Users, 
+      label: 'Usuarios', 
+      vista: 'usuarios',
+      roles: ['admin'],
+      badge: 'Admin'
+    },
+    // ✅ "Inscripciones" (todas) solo para admin/administrativo
+    { 
+      icon: UserCheck, 
+      label: 'Inscripciones', 
+      vista: 'inscripciones',
+      roles: ['admin', 'administrativo']
+    },
+    { 
+      icon: CreditCard, 
+      label: 'Pagos', 
+      vista: 'pagos',
+      roles: ['admin', 'administrativo']
+    },
+    { 
+      icon: Settings, 
+      label: 'Configuración', 
+      vista: 'configuracion',
+      roles: ['admin', 'estudiante', 'profesor', 'administrativo', 'externo']
+    },
   ];
+
+  // ✅ Filtrar menú según rol del usuario
+  const menuFiltrado = menuItems.filter(item => 
+    item.roles.includes(usuario?.rol)
+  );
 
   if (!showSidebar) return null;
 
@@ -32,49 +78,90 @@ const Sidebar = ({ vista, setVista, showSidebar }) => {
         </div>
         <div>
           <h2 style={{ fontWeight: 'bold', fontSize: '1.25rem', margin: 0 }}>USC Eventos</h2>
-          <p style={{ fontSize: '0.75rem', color: '#93c5fd', margin: 0 }}>Admin Panel</p>
+          <p style={{ fontSize: '0.75rem', color: '#93c5fd', margin: 0 }}>
+            {esAdmin ? 'Admin Panel' : 
+             tieneAccesoCompleto ? 'Panel Administrativo' : 
+             'Portal de Eventos'}
+          </p>
         </div>
       </div>
 
+      {/* Alerta informativa para usuarios regulares */}
+      {esUsuarioRegular && (
+        <div style={{
+          backgroundColor: 'rgba(59, 130, 246, 0.2)',
+          border: '1px solid rgba(59, 130, 246, 0.4)',
+          borderRadius: '12px',
+          padding: '12px',
+          marginBottom: '20px'
+        }}>
+          <p style={{ fontSize: '0.75rem', margin: 0, color: '#dbeafe', fontWeight: '500' }}>
+            🎉 Puedes inscribirte a eventos y gestionar tus inscripciones
+          </p>
+        </div>
+      )}
+
       {/* Menu Items */}
       <nav style={{ marginBottom: '100px' }}>
-        {menuItems.map(item => (
-          <button
-            key={item.vista}
-            onClick={() => setVista(item.vista)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '12px 16px',
-              borderRadius: '12px',
-              border: 'none',
-              backgroundColor: vista === item.vista ? 'white' : 'transparent',
-              color: vista === item.vista ? '#1e40af' : 'white',
-              cursor: 'pointer',
-              fontWeight: '500',
-              marginBottom: '8px',
-              transition: 'all 0.2s',
-              fontSize: '0.95rem'
-            }}
-            onMouseOver={(e) => {
-              if (vista !== item.vista) {
-                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
-                e.currentTarget.style.transform = 'translateX(4px)';
-              }
-            }}
-            onMouseOut={(e) => {
-              if (vista !== item.vista) {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.transform = 'translateX(0)';
-              }
-            }}
-          >
-            <item.icon size={20} />
-            <span>{item.label}</span>
-          </button>
-        ))}
+        {menuFiltrado.map(item => {
+          const tieneAcceso = item.roles.includes(usuario?.rol);
+          
+          return (
+            <button
+              key={item.vista}
+              onClick={() => tieneAcceso && setVista(item.vista)}
+              disabled={!tieneAcceso}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                borderRadius: '12px',
+                border: 'none',
+                backgroundColor: vista === item.vista ? 'white' : 'transparent',
+                color: vista === item.vista ? '#1e40af' : 'white',
+                cursor: tieneAcceso ? 'pointer' : 'not-allowed',
+                fontWeight: '500',
+                marginBottom: '8px',
+                transition: 'all 0.2s',
+                fontSize: '0.95rem',
+                opacity: tieneAcceso ? 1 : 0.5,
+                position: 'relative'
+              }}
+              onMouseOver={(e) => {
+                if (vista !== item.vista && tieneAcceso) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.transform = 'translateX(4px)';
+                }
+              }}
+              onMouseOut={(e) => {
+                if (vista !== item.vista) {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.transform = 'translateX(0)';
+                }
+              }}
+            >
+              <item.icon size={20} />
+              <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
+              
+              {/* Badge */}
+              {item.badge && (
+                <span style={{
+                  fontSize: '0.625rem',
+                  padding: '2px 6px',
+                  borderRadius: '6px',
+                  backgroundColor: item.badge === 'Admin' ? '#fbbf24' : 
+                                   item.badge === 'Nuevo' ? '#10b981' : '#ef4444',
+                  color: item.badge === 'Nuevo' ? 'white' : '#1f2937',
+                  fontWeight: '600'
+                }}>
+                  {item.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       {/* User Info */}
@@ -107,11 +194,22 @@ const Sidebar = ({ vista, setVista, showSidebar }) => {
               {usuario?.nombre?.charAt(0) || 'U'}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontWeight: '600', fontSize: '0.875rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <p style={{ 
+                fontWeight: '600', 
+                fontSize: '0.875rem', 
+                margin: 0, 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis', 
+                whiteSpace: 'nowrap' 
+              }}>
                 {usuario?.nombre || 'Usuario'}
               </p>
               <p style={{ fontSize: '0.75rem', color: '#93c5fd', margin: 0 }}>
-                {usuario?.rol || 'user'}
+                {usuario?.rol === 'admin' ? '👑 Administrador' :
+                 usuario?.rol === 'estudiante' ? '🎓 Estudiante' :
+                 usuario?.rol === 'profesor' ? '👨‍🏫 Profesor' :
+                 usuario?.rol === 'administrativo' ? '💼 Administrativo' :
+                 usuario?.rol === 'externo' ? '🌐 Externo' : usuario?.rol}
               </p>
             </div>
           </div>
