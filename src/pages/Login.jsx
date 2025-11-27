@@ -16,8 +16,8 @@ const Login = () => {
   const [formData, setFormData] = useState({
     nombre: '',
     correo: '',
-    contraseña: '',
-    rol: 'estudiante' // Por defecto estudiante
+    password: '',
+    rol: 'estudiante'
   });
 
   // 🎓 Roles permitidos para registro público
@@ -82,6 +82,7 @@ const Login = () => {
     setError('');
     setSuccess('');
 
+    // ✅ VALIDACIÓN DE CORREO PARA REGISTRO Y RECUPERACIÓN
     if (vista === 'registro' || vista === 'recuperar') {
       const esValido = await validarCorreoReal(formData.correo);
       if (!esValido) {
@@ -93,50 +94,92 @@ const Login = () => {
 
     try {
       if (vista === 'login') {
+        // ✅ FIX: Asegurarse de que ambos campos existan
+        if (!formData.correo || !formData.password) {
+          throw new Error('Por favor completa todos los campos');
+        }
+
         const response = await authAPI.login({
-          correo: formData.correo,
-          contraseña: formData.contraseña
+          correo: formData.correo.trim(),
+          password: formData.password
         });
 
+        console.log('Respuesta del servidor:', response.data);
+
+        // ✅ Verificar que el servidor devuelva los datos correctamente
         const { usuario, token } = response.data;
+        
+        if (!usuario || !token) {
+          throw new Error('Error en la respuesta del servidor');
+        }
+
+        // ✅ Guardar en localStorage
         localStorage.setItem('token', token);
         localStorage.setItem('usuario', JSON.stringify(usuario));
+        
+        // ✅ Actualizar el estado de Zustand
         login(usuario, token);
+        
         setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
         
       } else if (vista === 'registro') {
+        // ✅ VALIDACIONES DE REGISTRO
         if (formData.nombre.length < 3) {
           throw new Error('El nombre debe tener al menos 3 caracteres');
         }
-        if (formData.contraseña.length < 6) {
+        if (formData.password.length < 6) {
           throw new Error('La contraseña debe tener al menos 6 caracteres');
         }
         
-        // ⚠️ IMPORTANTE: Asegurar que solo se envíen roles permitidos
+        // ✅ Verificar que solo se envíen roles permitidos
         if (!rolesPublicos.some(r => r.valor === formData.rol)) {
           throw new Error('Rol no válido');
         }
         
-        await authAPI.registro(formData);
+        await authAPI.registro({
+          nombre: formData.nombre.trim(),
+          correo: formData.correo.trim(),
+          password: formData.password,
+          rol: formData.rol
+        });
+        
         setSuccess('¡Cuenta creada exitosamente! Inicia sesión para continuar.');
         
         setTimeout(() => {
           setVista('login');
           setSuccess('');
+          setFormData({
+            nombre: '',
+            correo: '',
+            password: '',
+            rol: 'estudiante'
+          });
         }, 2000);
         
       } else if (vista === 'recuperar') {
-        await authAPI.recuperarPassword({ correo: formData.correo });
+  await authAPI.recuperarPassword(formData.correo.trim());
+  
+        
         setSuccess('¡Correo de recuperación enviado! Revisa tu bandeja de entrada.');
         
         setTimeout(() => {
           setVista('login');
           setSuccess('');
+          setFormData({
+            nombre: '',
+            correo: '',
+            password: '',
+            rol: 'estudiante'
+          });
         }, 3000);
       }
     } catch (err) {
       console.error('Error completo:', err);
-      setError(err.response?.data?.mensaje || err.message || 'Error al procesar la solicitud');
+      const mensajeError = err.response?.data?.mensaje || 
+                          err.response?.data?.error || 
+                          err.message || 
+                          'Error al procesar la solicitud';
+      setError(mensajeError);
     } finally {
       setLoading(false);
     }
@@ -454,9 +497,9 @@ const Login = () => {
                 />
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  name="contraseña"
+                  name="password"
                   required
-                  value={formData.contraseña}
+                  value={formData.password}
                   onChange={handleChange}
                   placeholder="••••••••"
                   minLength={6}
@@ -506,7 +549,10 @@ const Login = () => {
             <div style={{ textAlign: 'right', marginBottom: '20px' }}>
               <button
                 type="button"
-                onClick={() => setVista('recuperar')}
+                onClick={() => {
+                  setVista('recuperar');
+                  setFormData({ ...formData, password: '' });
+                }}
                 style={{
                   color: '#2563eb',
                   fontSize: '0.875rem',
@@ -522,7 +568,7 @@ const Login = () => {
             </div>
           )}
 
-          {/* 🎓 Selector de Rol (solo en registro) - VISUAL MEJORADO */}
+          {/* 🎓 Selector de Rol (solo en registro) */}
           {vista === 'registro' && (
             <div style={{ marginBottom: '20px' }}>
               <label style={{
@@ -570,7 +616,6 @@ const Login = () => {
                         }
                       }}
                     >
-                      {/* Icono */}
                       <div style={{
                         width: '48px',
                         height: '48px',
@@ -584,7 +629,6 @@ const Login = () => {
                         <IconComponent size={24} color={isSelected ? 'white' : rol.color} />
                       </div>
                       
-                      {/* Texto */}
                       <div style={{ flex: 1 }}>
                         <p style={{
                           fontWeight: '600',
@@ -603,7 +647,6 @@ const Login = () => {
                         </p>
                       </div>
                       
-                      {/* Checkmark */}
                       {isSelected && (
                         <div style={{
                           width: '24px',
@@ -623,7 +666,6 @@ const Login = () => {
                 })}
               </div>
               
-              {/* Nota informativa */}
               <div style={{
                 marginTop: '12px',
                 padding: '12px',

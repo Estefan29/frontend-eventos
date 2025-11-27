@@ -10,28 +10,47 @@ export const useAuthStore = create(
 
       // === LOGIN ===
       login: (usuario, token) => {
-      // Guardar en localStorage también por si acaso
-      localStorage.setItem('token', token);
-      localStorage.setItem('usuario', JSON.stringify(usuario));
-      
-      set({
+        console.log('🔐 Login en store:', { usuario, token: token ? '***' : null });
+        
+        // Guardar en localStorage también para compatibilidad
+        localStorage.setItem('token', token);
+        localStorage.setItem('usuario', JSON.stringify(usuario));
+        
+        set({
           usuario,
           token,
           isAuthenticated: true,
         });
-    },
+        
+        console.log('✅ Estado actualizado:', get());
+      },
 
       // === LOGOUT ===
       logout: () => {
+        console.log('👋 Cerrando sesión...');
+        
+        // Limpiar localStorage
+        localStorage.removeItem('token');
+        localStorage.removeItem('usuario');
+        
+        // Limpiar estado
         set({
           usuario: null,
           token: null,
           isAuthenticated: false,
         });
+
+        // Redirigir al login
+        window.location.href = '/login';
       },
 
       // === ACTUALIZAR PERFIL ===
       actualizarUsuario: (usuarioActualizado) => {
+        console.log('📝 Actualizando usuario:', usuarioActualizado);
+        
+        // Actualizar en localStorage también
+        localStorage.setItem('usuario', JSON.stringify(usuarioActualizado));
+        
         set({
           usuario: usuarioActualizado,
         });
@@ -41,6 +60,17 @@ export const useAuthStore = create(
       esAdmin: () => {
         const usuario = get().usuario;
         return usuario?.rol === 'admin';
+      },
+
+      // === VALIDAR SI ES ADMINISTRATIVO ===
+      esAdministrativo: () => {
+        const usuario = get().usuario;
+        return usuario?.rol === 'administrativo';
+      },
+
+      // === OBTENER TOKEN ===
+      getToken: () => {
+        return get().token;
       },
     }),
     {

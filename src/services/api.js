@@ -1,27 +1,29 @@
 import axios from 'axios';
+import { useAuthStore } from '../store/authStore';
 
 const API_URL = 'http://localhost:4000/api';
 
 const api = axios.create({
   baseURL: API_URL,
-  withCredentials: true,
+  withCredentials: false,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
+
 // Interceptor para agregar token automáticamente
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = useAuthStore.getState().token;
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Interceptor para manejar errores
@@ -29,20 +31,29 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('usuario');
-      window.location.href = '/';
+      useAuthStore.getState().logout();
+
+      // Evitar bucle infinito
+      if (window.location.pathname !== '/') {
+        window.location.href = '/';
+      }
     }
     return Promise.reject(error);
   }
 );
 
+
 // AUTH
 export const authAPI = {
   login: (data) => api.post('/auth/login', data),
   registro: (data) => api.post('/auth/registro', data),
-  recuperarPassword: (data) => api.post('/auth/recuperar-password', data), // ← NUEVO
-  restablecerPassword: (data) => api.post('/auth/restablecer-password', data), // ← NUEVO
+  recuperarPassword: (correo) => api.post('/auth/recuperar-password', { correo }),
+  validarTokenRecuperacion: (token) => api.get(`/auth/validar-token/${token}`), 
+  restablecerPassword: ({ token, nuevaContraseña }) => 
+  api.post('/auth/restablecer-password', {
+    token,
+    nuevoPassword: nuevaContraseña
+  }),
   perfil: () => api.get('/auth/perfil'),
   actualizarPerfil: (data) => api.put('/auth/perfil', data),
   cambiarPassword: (data) => api.put('/auth/cambiar-password', data),

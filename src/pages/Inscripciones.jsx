@@ -22,7 +22,7 @@ const Inscripciones = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, [filtroEstado]);
+  }, []);
 
   const cargarDatos = async () => {
     try {

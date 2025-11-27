@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import Sidebar from './components/common/Sidebar';
 import Navbar from './components/common/Navbar';
@@ -9,18 +9,47 @@ import Usuarios from './pages/Usuarios';
 import Inscripciones from './pages/Inscripciones';
 import Pagos from './pages/Pagos';
 import MisInscripciones from './pages/MisInscripciones';
-import RestablecerPassword from './pages/RestablecerPassword'; 
-import { Routes, Route } from 'react-router-dom';
+import Configuracion from './pages/Configuracion';
+import CambiarPassword from './pages/CambiarPassword';
+import ResetPassword from './pages/ResetPassword';
+
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 function App() {
+  const location = useLocation();
+  
+  return (
+    <Routes>
+      {/* Ruta pública para restablecer contraseña */}
+      <Route path="/reset-password/:token" element={<ResetPassword />} />
+      
+      {/* Ruta de login */}
+      <Route path="/login" element={<Login />} />
+      
+      {/* Rutas protegidas de la aplicación */}
+      <Route path="/*" element={<ProtectedRoutes />} />
+    </Routes>
+  );
+}
+
+// Componente separado para las rutas protegidas
+function ProtectedRoutes() {
   const [vista, setVista] = useState('dashboard');
   const [showSidebar, setShowSidebar] = useState(true);
   const { isAuthenticated, usuario } = useAuthStore();
 
-  //  Verificar si el usuario NO está autenticado
+  // Log para debugging
+  useEffect(() => {
+    console.log('🔍 Estado de autenticación:', { isAuthenticated, usuario });
+  }, [isAuthenticated, usuario]);
+
+  // Si no está autenticado, redirigir al login
   if (!isAuthenticated) {
-    return <Login />;
+    console.log('❌ No autenticado, redirigiendo a login...');
+    return <Navigate to="/login" replace />;
   }
+
+  console.log('✅ Usuario autenticado:', usuario?.nombre);
 
   // Verificar roles y permisos
   const esAdmin = usuario?.rol === 'admin';
@@ -34,33 +63,34 @@ function App() {
         return <Dashboard />;
       
       case 'eventos': 
-        //  Todos pueden ver eventos
         return <Eventos />;
       
       case 'mis-inscripciones':
-        //  Usuarios regulares ven sus propias inscripciones
         return <MisInscripciones />;
       
       case 'usuarios': 
-        //  Solo admin puede gestionar usuarios
         if (tieneAccesoCompleto) {
           return <Usuarios />;
         }
         return <AccessDenied rol={usuario?.rol} seccion="Gestión de Usuarios" />;
       
       case 'inscripciones': 
-        // Admin y administrativo pueden ver TODAS las inscripciones
         if (tieneAccesoCompleto) {
           return <Inscripciones />;
         }
         return <AccessDenied rol={usuario?.rol} seccion="Gestión de Inscripciones" />;
       
       case 'pagos': 
-        // Solo admin y administrativo pueden gestionar pagos
         if (tieneAccesoCompleto) {
           return <Pagos />;
         }
         return <AccessDenied rol={usuario?.rol} seccion="Gestión de Pagos" />;
+      
+      case 'configuracion':
+        return <Configuracion />;
+      
+      case 'cambiar-password':
+        return <CambiarPassword />;
       
       default: 
         return <Dashboard />;
@@ -68,37 +98,6 @@ function App() {
   };
 
   return (
-     <Routes>
-      {/* Ruta pública para restablecer contraseña */}
-      <Route path="/restablecer-password" element={<RestablecerPassword />} />
-      
-      {/* Rutas de la aplicación */}
-      <Route
-        path="/*"
-        element={
-          !isAuthenticated ? (
-            <Login />
-          ) : (
-            <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'system-ui' }}>
-              <Sidebar vista={vista} setVista={setVista} showSidebar={showSidebar} />
-              
-              <div style={{
-                marginLeft: showSidebar ? '256px' : '0',
-                flex: 1,
-                transition: 'margin 0.3s'
-              }}>
-                <Navbar showSidebar={showSidebar} setShowSidebar={setShowSidebar} />
-                
-                <div style={{ padding: '32px' }}>
-                  {renderPage()}
-                </div>
-              </div>
-            </div>
-          )
-        }
-      />
-    </Routes>
-  );
     <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'system-ui' }}>
       <Sidebar 
         vista={vista} 
@@ -121,10 +120,10 @@ function App() {
         </div>
       </div>
     </div>
-  ;
+  );
 }
 
-// ✅ Componente para mostrar cuando no hay acceso
+// Componente para mostrar cuando no hay acceso
 function AccessDenied({ rol, seccion }) {
   return (
     <div style={{

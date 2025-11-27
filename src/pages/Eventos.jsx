@@ -33,37 +33,62 @@ const Eventos = () => {
   }, []);
 
   const cargarDatos = async () => {
-    try {
-      setLoading(true);
-      
-      // Cargar eventos
-      const eventosRes = await eventosAPI.obtenerTodos();
-      setEventos(eventosRes.data.data?.eventos || []);
-      
-      // Cargar inscripciones solo para usuarios regulares
-      if (esUsuarioRegular) {
-        try {
-          const inscripcionesRes = await inscripcionesAPI.misInscripciones();
-          setMisInscripciones(inscripcionesRes.data || []);
-        } catch (inscripcionError) {
-          console.warn('No se pudieron cargar las inscripciones:', inscripcionError);
-          setMisInscripciones([]);
-        }
+  try {
+    setLoading(true);
+    
+    // Cargar eventos
+    const eventosRes = await eventosAPI.obtenerTodos();
+    console.log('📅 Eventos response:', eventosRes.data);
+    
+    // Manejar diferentes estructuras de respuesta
+    const eventosData = eventosRes.data.data?.eventos || 
+                       eventosRes.data.eventos || 
+                       eventosRes.data || 
+                       [];
+    
+    setEventos(Array.isArray(eventosData) ? eventosData : []);
+    
+    // Cargar inscripciones solo para usuarios regulares
+    if (esUsuarioRegular) {
+      try {
+        const inscripcionesRes = await inscripcionesAPI.misInscripciones();
+        console.log('📝 Mis inscripciones response:', inscripcionesRes.data);
+        
+        // Manejar diferentes estructuras de respuesta
+        const inscripcionesData = inscripcionesRes.data.data || 
+                                 inscripcionesRes.data || 
+                                 [];
+        
+        setMisInscripciones(Array.isArray(inscripcionesData) ? inscripcionesData : []);
+      } catch (inscripcionError) {
+        console.warn('No se pudieron cargar las inscripciones:', inscripcionError);
+        setMisInscripciones([]);
       }
-    } catch (error) {
-      console.error('Error al cargar eventos:', error);
-      // No mostrar alert para mejor UX, solo log en consola
-      setEventos([]);
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    console.error('Error al cargar eventos:', error);
+    setEventos([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const estaInscrito = (eventoId) => {
-    return misInscripciones.some(
-      inscripcion => inscripcion.id_evento?._id === eventoId || inscripcion.id_evento === eventoId
-    );
-  };
+ const estaInscrito = (eventoId) => {
+  // Asegurarnos de que misInscripciones sea un array
+  if (!Array.isArray(misInscripciones)) {
+    console.warn('⚠️ misInscripciones no es un array:', misInscripciones);
+    return false;
+  }
+  
+  return misInscripciones.some(inscripcion => {
+    // Verificar diferentes estructuras de respuesta
+    const idEvento = inscripcion.id_evento_mongo || 
+                    inscripcion.evento?._id || 
+                    inscripcion.evento;
+    
+    return idEvento === eventoId;
+  });
+};
 
   const handleInscripcion = async () => {
     if (!eventoInscribirse) return;
