@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Filter, Edit2, Trash2, Eye, Calendar, MapPin, Users, X } from 'lucide-react';
+import { Plus, Search, Filter, Edit2, Trash2, Eye, Calendar, MapPin, Users, X, UserPlus, CheckCircle, AlertCircle, DollarSign } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { eventosAPI, inscripcionesAPI } from '../services/api';
 import Card from '../components/common/Card';
-import { eventosAPI } from '../services/api';
 
 const Eventos = () => {
   const [eventos, setEventos] = useState([]);
+  const [misInscripciones, setMisInscripciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busqueda, setBusqueda] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalInscripcion, setModalInscripcion] = useState(false);
   const [eventoEditando, setEventoEditando] = useState(null);
+  const [eventoInscribirse, setEventoInscribirse] = useState(null);
   const [formData, setFormData] = useState({
     titulo: '',
     descripcion: '',
@@ -17,31 +21,83 @@ const Eventos = () => {
     capacidad: '',
     precio: ''
   });
+  const { usuario } = useAuthStore();
+
+  const esAdmin = usuario?.rol === 'admin';
+  const esAdministrativo = usuario?.rol === 'administrativo';
+  const tieneAccesoCompleto = esAdmin || esAdministrativo;
+  const esUsuarioRegular = ['estudiante', 'profesor', 'externo'].includes(usuario?.rol);
 
   useEffect(() => {
-    cargarEventos();
+    cargarDatos();
   }, []);
 
-  const cargarEventos = async () => {
+  const cargarDatos = async () => {
     try {
-      const response = await eventosAPI.obtenerTodos();
-      setEventos(response.data.data?.eventos || []);
+      setLoading(true);
+      
+      // Cargar eventos
+      const eventosRes = await eventosAPI.obtenerTodos();
+      setEventos(eventosRes.data.data?.eventos || []);
+      
+      // Cargar inscripciones solo para usuarios regulares
+      if (esUsuarioRegular) {
+        try {
+          const inscripcionesRes = await inscripcionesAPI.misInscripciones();
+          setMisInscripciones(inscripcionesRes.data || []);
+        } catch (inscripcionError) {
+          console.warn('No se pudieron cargar las inscripciones:', inscripcionError);
+          setMisInscripciones([]);
+        }
+      }
     } catch (error) {
       console.error('Error al cargar eventos:', error);
+      // No mostrar alert para mejor UX, solo log en consola
+      setEventos([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = async (e) => {
+  const estaInscrito = (eventoId) => {
+    return misInscripciones.some(
+      inscripcion => inscripcion.id_evento?._id === eventoId || inscripcion.id_evento === eventoId
+    );
+  };
+
+  const handleInscripcion = async () => {
+    if (!eventoInscribirse) return;
+    
+    try {
+      await inscripcionesAPI.crear({
+        id_evento_mongo: eventoInscribirse._id,
+        id_usuario_mongo: usuario._id
+      });
+      
+      alert('¡Inscripción exitosa! ' + 
+        (eventoInscribirse.precio === 0 
+          ? 'Tu lugar ha sido reservado.' 
+          : 'Se te redirigirá al pago.'));
+      
+      setModalInscripcion(false);
+      setEventoInscribirse(null);
+      cargarDatos();
+    } catch (error) {
+      alert('Error al inscribirse: ' + (error.response?.data?.mensaje || error.message));
+    }
+  };
+
+  const handleSubmitEvento = async (e) => {
     e.preventDefault();
     try {
       if (eventoEditando) {
-        await eventosAPI.actualizar(eventoEditando.id, formData);
+        await eventosAPI.actualizar(eventoEditando._id, formData);
+        alert('Evento actualizado exitosamente');
       } else {
         await eventosAPI.crear(formData);
+        alert('Evento creado exitosamente');
       }
-      cargarEventos();
+      cargarDatos();
       cerrarModal();
     } catch (error) {
       alert('Error al guardar evento: ' + (error.response?.data?.mensaje || error.message));
@@ -52,7 +108,8 @@ const Eventos = () => {
     if (window.confirm('¿Estás seguro de eliminar este evento?')) {
       try {
         await eventosAPI.eliminar(id);
-        cargarEventos();
+        alert('Evento eliminado exitosamente');
+        cargarDatos();
       } catch (error) {
         alert('Error al eliminar: ' + (error.response?.data?.mensaje || error.message));
       }
@@ -94,8 +151,12 @@ const Eventos = () => {
     evento.lugar?.toLowerCase().includes(busqueda.toLowerCase())
   );
 
+  const eventoLleno = (evento) => {
+    return evento.capacidad && evento.inscritos >= evento.capacidad;
+  };
+
   return (
-    <div style={{ animation: 'fadeIn 0.5s ease-in' }}>
+    <div style={{ animation: 'fadeIn 0.5s ease-in', fontFamily: 'system-ui' }}>
       {/* Header */}
       <div style={{
         display: 'flex',
@@ -112,242 +173,327 @@ const Eventos = () => {
             color: '#1f2937',
             marginBottom: '8px'
           }}>
-            Gestión de Eventos
+            {tieneAccesoCompleto ? 'Gestión de Eventos' : 'Eventos Disponibles'}
           </h1>
           <p style={{ color: '#6b7280', fontSize: '1rem' }}>
-            Administra todos los eventos de la universidad
+            {tieneAccesoCompleto 
+              ? 'Administra todos los eventos de la universidad'
+              : 'Explora y inscríbete a nuestros eventos'}
           </p>
         </div>
-        <button
-          onClick={() => abrirModal()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '12px 24px',
-            background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '12px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.3)',
-            transition: 'all 0.2s'
-          }}
-          onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-        >
-          <Plus size={20} />
-          Crear Evento
-        </button>
+        
+        {tieneAccesoCompleto && (
+          <button
+            onClick={() => abrirModal()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 24px',
+              background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.3)',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            <Plus size={20} />
+            Crear Evento
+          </button>
+        )}
       </div>
 
-      {/* Filters */}
+      {/* Search Bar */}
       <Card style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: '300px', position: 'relative' }}>
-            <Search
-              size={20}
-              color="#9ca3af"
-              style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
-            />
-            <input
-              type="text"
-              placeholder="Buscar eventos..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px 12px 12px 44px',
-                borderRadius: '12px',
-                border: '2px solid #e5e7eb',
-                fontSize: '0.95rem',
-                outline: 'none',
-                transition: 'all 0.2s',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
-            />
-          </div>
-          <button style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '12px 20px',
-            border: '2px solid #e5e7eb',
-            background: 'white',
-            borderRadius: '12px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            transition: 'all 0.2s'
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.borderColor = '#3b82f6';
-            e.currentTarget.style.backgroundColor = '#eff6ff';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.borderColor = '#e5e7eb';
-            e.currentTarget.style.backgroundColor = 'white';
-          }}
-          >
-            <Filter size={18} />
-            Filtros
-          </button>
+        <div style={{ position: 'relative' }}>
+          <Search
+            size={20}
+            color="#9ca3af"
+            style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
+          />
+          <input
+            type="text"
+            placeholder="Buscar eventos..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px 12px 12px 44px',
+              borderRadius: '12px',
+              border: '2px solid #e5e7eb',
+              fontSize: '0.95rem',
+              outline: 'none',
+              transition: 'all 0.2s',
+              boxSizing: 'border-box'
+            }}
+            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+            onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+          />
         </div>
       </Card>
 
-      {/* Table */}
-      <Card>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px' }}>
-            <div style={{
-              width: '50px',
-              height: '50px',
-              border: '4px solid #e5e7eb',
-              borderTopColor: '#3b82f6',
-              borderRadius: '50%',
-              margin: '0 auto',
-              animation: 'spin 1s linear infinite'
-            }}></div>
-            <p style={{ marginTop: '16px', color: '#6b7280' }}>Cargando eventos...</p>
-          </div>
-        ) : eventosFiltrados.length === 0 ? (
+      {/* Eventos Grid */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '60px' }}>
+          <div style={{
+            width: '50px',
+            height: '50px',
+            border: '4px solid #e5e7eb',
+            borderTopColor: '#3b82f6',
+            borderRadius: '50%',
+            margin: '0 auto',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+        </div>
+      ) : eventosFiltrados.length === 0 ? (
+        <Card>
           <div style={{ textAlign: 'center', padding: '60px' }}>
             <Calendar size={64} color="#d1d5db" style={{ margin: '0 auto 16px' }} />
             <p style={{ color: '#6b7280', fontSize: '1.1rem' }}>
-              {busqueda ? 'No se encontraron eventos' : 'No hay eventos registrados'}
+              {busqueda ? 'No se encontraron eventos' : 'No hay eventos disponibles'}
             </p>
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Evento</th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Fecha</th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Lugar</th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Capacidad</th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Precio</th>
-                  <th style={{ padding: '16px', textAlign: 'right', fontWeight: '600', color: '#374151' }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {eventosFiltrados.map((evento) => (
-                  <tr
-                    key={evento._id}
-                    style={{
-                      borderBottom: '1px solid #f3f4f6',
-                      transition: 'background-color 0.2s'
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
-                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{
-                          width: '48px',
-                          height: '48px',
-                          borderRadius: '12px',
-                          background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+        </Card>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
+          gap: '24px'
+        }}>
+          {eventosFiltrados.map((evento) => {
+            const yaInscrito = estaInscrito(evento._id);
+            const lleno = eventoLleno(evento);
+            
+            return (
+              <Card key={evento._id} hover={true}>
+                {/* Imagen del Evento */}
+                <div style={{
+                  width: '100%',
+                  height: '180px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '3rem',
+                  fontWeight: 'bold'
+                }}>
+                  {evento.titulo.charAt(0)}
+                </div>
+
+                {/* Estado de la Inscripción */}
+                {esUsuarioRegular && (
+                  <div style={{ marginBottom: '12px' }}>
+                    {yaInscrito ? (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        backgroundColor: '#d1fae5',
+                        color: '#065f46',
+                        fontSize: '0.875rem',
+                        fontWeight: '600'
+                      }}>
+                        <CheckCircle size={16} />
+                        Ya estás inscrito
+                      </span>
+                    ) : lleno ? (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        backgroundColor: '#fee2e2',
+                        color: '#991b1b',
+                        fontSize: '0.875rem',
+                        fontWeight: '600'
+                      }}>
+                        <AlertCircle size={16} />
+                        Cupos agotados
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Título y Descripción */}
+                <h3 style={{
+                  fontSize: '1.25rem',
+                  fontWeight: 'bold',
+                  color: '#1f2937',
+                  marginBottom: '8px'
+                }}>
+                  {evento.titulo}
+                </h3>
+                
+                <p style={{
+                  color: '#6b7280',
+                  fontSize: '0.875rem',
+                  marginBottom: '16px',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden'
+                }}>
+                  {evento.descripcion}
+                </p>
+
+                {/* Info del Evento */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '0.875rem' }}>
+                    <Calendar size={16} />
+                    {new Date(evento.fecha).toLocaleDateString('es-ES', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '0.875rem' }}>
+                    <MapPin size={16} />
+                    {evento.lugar}
+                  </div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '0.875rem' }}>
+                    <Users size={16} />
+                    {evento.inscritos || 0} / {evento.capacidad || '∞'} inscritos
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', fontSize: '1rem' }}>
+                    <DollarSign size={18} color={evento.precio === 0 ? '#10b981' : '#f59e0b'} />
+                    <span style={{ color: evento.precio === 0 ? '#10b981' : '#f59e0b' }}>
+                      {evento.precio === 0 ? 'Gratis' : `$${evento.precio.toLocaleString()}`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Botones de Acción */}
+                <div style={{ display: 'flex', gap: '8px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+                  {tieneAccesoCompleto ? (
+                    <>
+                      <button
+                        onClick={() => abrirModal(evento)}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: '#dbeafe',
+                          color: '#2563eb',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          fontSize: '0.875rem',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          color: 'white',
-                          fontWeight: 'bold',
-                          fontSize: '1.2rem',
-                          flexShrink: 0
-                        }}>
-                          {evento.titulo?.charAt(0)}
-                        </div>
-                        <div>
-                          <p style={{ fontWeight: '600', color: '#1f2937', marginBottom: '2px' }}>{evento.titulo}</p>
-                          <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                            {evento.inscritos || 0} inscritos
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280' }}>
-                        <Calendar size={16} />
-                        {new Date(evento.fecha).toLocaleDateString('es-ES')}
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280' }}>
-                        <MapPin size={16} />
-                        {evento.lugar}
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280' }}>
-                        <Users size={16} />
-                        {evento.capacidad || 'Ilimitado'}
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <span style={{ fontWeight: '600', color: '#2563eb' }}>
-                        {evento.precio === 0 ? 'Gratis' : `$${evento.precio?.toLocaleString()}`}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button
-                          style={{
-                            padding: '8px',
-                            borderRadius: '8px',
-                            border: 'none',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dbeafe'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          <Eye size={18} color="#3b82f6" />
-                        </button>
-                        <button
-                          onClick={() => abrirModal(evento)}
-                          style={{
-                            padding: '8px',
-                            borderRadius: '8px',
-                            border: 'none',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dbeafe'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          <Edit2 size={18} color="#3b82f6" />
-                        </button>
-                        <button
-                          onClick={() => handleEliminar(evento._id)}
-                          style={{
-                            padding: '8px',
-                            borderRadius: '8px',
-                            border: 'none',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          <Trash2 size={18} color="#ef4444" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+                          gap: '6px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#bfdbfe'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#dbeafe'}
+                      >
+                        <Edit2 size={16} />
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleEliminar(evento._id)}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: '#fee2e2',
+                          color: '#dc2626',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          fontSize: '0.875rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#fecaca'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                      >
+                        <Trash2 size={16} />
+                        Eliminar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (!yaInscrito && !lleno) {
+                          setEventoInscribirse(evento);
+                          setModalInscripcion(true);
+                        }
+                      }}
+                      disabled={yaInscrito || lleno}
+                      style={{
+                        flex: 1,
+                        padding: '12px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: yaInscrito || lleno
+                          ? '#f3f4f6' 
+                          : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: yaInscrito || lleno ? '#9ca3af' : 'white',
+                        fontWeight: '600',
+                        cursor: yaInscrito || lleno ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        boxShadow: yaInscrito || lleno ? 'none' : '0 4px 6px -1px rgba(16, 185, 129, 0.3)'
+                      }}
+                      onMouseOver={(e) => {
+                        if (!yaInscrito && !lleno) {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                        }
+                      }}
+                      onMouseOut={(e) => {
+                        if (!yaInscrito && !lleno) {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                        }
+                      }}
+                    >
+                      {yaInscrito ? (
+                        <>
+                          <CheckCircle size={20} />
+                          Inscrito
+                        </>
+                      ) : lleno ? (
+                        <>
+                          <AlertCircle size={20} />
+                          Lleno
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus size={20} />
+                          Inscribirse
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Modal */}
+      {/* Modal Crear/Editar Evento */}
       {modalOpen && (
         <div style={{
           position: 'fixed',
@@ -401,7 +547,7 @@ const Eventos = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} style={{ padding: '24px' }}>
+            <form onSubmit={handleSubmitEvento} style={{ padding: '24px' }}>
               <div style={{ display: 'grid', gap: '20px' }}>
                 <div>
                   <label style={{ display: 'block', fontWeight: '500', marginBottom: '8px', color: '#374151' }}>
@@ -509,6 +655,7 @@ const Eventos = () => {
                       min="1"
                       value={formData.capacidad}
                       onChange={(e) => setFormData({...formData, capacidad: e.target.value})}
+                      placeholder="Dejar vacío para ilimitado"
                       style={{
                         width: '100%',
                         padding: '12px',
@@ -533,6 +680,7 @@ const Eventos = () => {
                       min="0"
                       value={formData.precio}
                       onChange={(e) => setFormData({...formData, precio: e.target.value})}
+                      placeholder="0 para evento gratuito"
                       style={{
                         width: '100%',
                         padding: '12px',
@@ -591,6 +739,149 @@ const Eventos = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Inscripción */}
+      {modalInscripcion && eventoInscribirse && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50,
+          padding: '20px',
+          animation: 'fadeIn 0.2s'
+        }}
+        onClick={() => setModalInscripcion(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '20px',
+              maxWidth: '500px',
+              width: '100%',
+              animation: 'slideUp 0.3s'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              borderRadius: '20px 20px 0 0',
+              color: 'white'
+            }}>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0 }}>
+                Confirmar Inscripción
+              </h2>
+              <button
+                onClick={() => setModalInscripcion(false)}
+                style={{
+                  padding: '8px',
+                  border: 'none',
+                  background: 'rgba(255,255,255,0.2)',
+                  cursor: 'pointer',
+                  borderRadius: '8px',
+                  transition: 'all 0.2s',
+                  color: 'white'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.3)'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)'}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div style={{ padding: '32px' }}>
+              <div style={{
+                textAlign: 'center',
+                padding: '24px',
+                backgroundColor: '#f0fdf4',
+                borderRadius: '16px',
+                marginBottom: '24px'
+              }}>
+                <Calendar size={48} color="#10b981" style={{ margin: '0 auto 12px' }} />
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {eventoInscribirse.titulo}
+                </h3>
+                <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '12px' }}>
+                  {new Date(eventoInscribirse.fecha).toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+                <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: eventoInscribirse.precio === 0 ? '#10b981' : '#f59e0b' }}>
+                  {eventoInscribirse.precio === 0 ? 'Evento Gratuito' : `$${eventoInscribirse.precio.toLocaleString()}`}
+                </p>
+              </div>
+
+              {eventoInscribirse.precio > 0 && (
+                <div style={{
+                  padding: '16px',
+                  backgroundColor: '#fef3c7',
+                  borderRadius: '12px',
+                  marginBottom: '24px',
+                  border: '2px solid #fbbf24'
+                }}>
+                  <p style={{ color: '#92400e', fontSize: '0.875rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <AlertCircle size={18} />
+                    Después de confirmar, serás redirigido a la página de pago.
+                  </p>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => setModalInscripcion(false)}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: '2px solid #e5e7eb',
+                    background: 'white',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleInscripcion}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: 'white',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                  onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                  <UserPlus size={18} />
+                  Confirmar Inscripción
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

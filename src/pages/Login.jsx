@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Calendar, Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Calendar, Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, ArrowLeft, GraduationCap, Users, Globe } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { authAPI } from '../services/api';
-//import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
-  const { login } = useAuthStore(); // ✅ Función para actualizar el estado de autenticación
+  const { login } = useAuthStore();
   
   const [vista, setVista] = useState('login');
   const [showPassword, setShowPassword] = useState(false);
@@ -13,14 +12,38 @@ const Login = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [emailValido, setEmailValido] = useState(true);
-  //const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
     nombre: '',
     correo: '',
     contraseña: '',
-    rol: 'estudiante'
+    rol: 'estudiante' // Por defecto estudiante
   });
+
+  // 🎓 Roles permitidos para registro público
+  const rolesPublicos = [
+    { 
+      valor: 'estudiante', 
+      label: 'Estudiante USC',
+      descripcion: 'Estudiante activo de la universidad',
+      icon: GraduationCap,
+      color: '#3b82f6'
+    },
+    { 
+      valor: 'profesor', 
+      label: 'Docente',
+      descripcion: 'Profesor o docente de la universidad',
+      icon: Users,
+      color: '#8b5cf6'
+    },
+    { 
+      valor: 'externo', 
+      label: 'Externo',
+      descripcion: 'Persona externa a la universidad',
+      icon: Globe,
+      color: '#10b981'
+    }
+  ];
 
   const validarCorreoReal = async (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -54,76 +77,70 @@ const Login = () => {
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
-  setSuccess('');
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
 
-  if (vista === 'registro' || vista === 'recuperar') {
-    const esValido = await validarCorreoReal(formData.correo);
-    if (!esValido) {
-      setError('Por favor ingresa un correo electrónico válido y existente');
+    if (vista === 'registro' || vista === 'recuperar') {
+      const esValido = await validarCorreoReal(formData.correo);
+      if (!esValido) {
+        setError('Por favor ingresa un correo electrónico válido y existente');
+        setLoading(false);
+        return;
+      }
+    }
+
+    try {
+      if (vista === 'login') {
+        const response = await authAPI.login({
+          correo: formData.correo,
+          contraseña: formData.contraseña
+        });
+
+        const { usuario, token } = response.data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('usuario', JSON.stringify(usuario));
+        login(usuario, token);
+        setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
+        
+      } else if (vista === 'registro') {
+        if (formData.nombre.length < 3) {
+          throw new Error('El nombre debe tener al menos 3 caracteres');
+        }
+        if (formData.contraseña.length < 6) {
+          throw new Error('La contraseña debe tener al menos 6 caracteres');
+        }
+        
+        // ⚠️ IMPORTANTE: Asegurar que solo se envíen roles permitidos
+        if (!rolesPublicos.some(r => r.valor === formData.rol)) {
+          throw new Error('Rol no válido');
+        }
+        
+        await authAPI.registro(formData);
+        setSuccess('¡Cuenta creada exitosamente! Inicia sesión para continuar.');
+        
+        setTimeout(() => {
+          setVista('login');
+          setSuccess('');
+        }, 2000);
+        
+      } else if (vista === 'recuperar') {
+        await authAPI.recuperarPassword({ correo: formData.correo });
+        setSuccess('¡Correo de recuperación enviado! Revisa tu bandeja de entrada.');
+        
+        setTimeout(() => {
+          setVista('login');
+          setSuccess('');
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Error completo:', err);
+      setError(err.response?.data?.mensaje || err.message || 'Error al procesar la solicitud');
+    } finally {
       setLoading(false);
-      return;
     }
-  }
-
-  try {
-    if (vista === 'login') {
-      // ✅ LLAMADA REAL AL BACKEND
-      const response = await authAPI.login({
-        correo: formData.correo,
-        contraseña: formData.contraseña
-      });
-
-      console.log('Respuesta del backend:', response.data); // Para debugging
-
-      // ✅ EXTRAER USUARIO Y TOKEN
-      const { usuario, token } = response.data;
-
-      // ✅ GUARDAR EN LOCALSTORAGE PRIMERO
-      localStorage.setItem('token', token);
-      localStorage.setItem('usuario', JSON.stringify(usuario));
-
-      // ✅ LUEGO ACTUALIZAR EL STORE
-      login(usuario, token);
-      
-      setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
-      
-    } else if (vista === 'registro') {
-      if (formData.nombre.length < 3) {
-        throw new Error('El nombre debe tener al menos 3 caracteres');
-      }
-      if (formData.contraseña.length < 6) {
-        throw new Error('La contraseña debe tener al menos 6 caracteres');
-      }
-      
-      // ✅ REGISTRO CON BACKEND
-      await authAPI.registro(formData);
-      setSuccess('¡Cuenta creada exitosamente! Inicia sesión para continuar.');
-      
-      setTimeout(() => {
-        setVista('login');
-        setSuccess('');
-      }, 2000);
-      
-    } else if (vista === 'recuperar') {
-      // ✅ RECUPERAR CONTRASEÑA
-      await authAPI.recuperarPassword({ correo: formData.correo });
-      setSuccess('¡Correo de recuperación enviado! Revisa tu bandeja de entrada.');
-      
-      setTimeout(() => {
-        setVista('login');
-        setSuccess('');
-      }, 3000);
-    }
-  } catch (err) {
-    console.error('Error completo:', err); // Para debugging
-    setError(err.response?.data?.mensaje || err.message || 'Error al procesar la solicitud');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -176,7 +193,7 @@ const Login = () => {
         borderRadius: '24px',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
         padding: '48px',
-        maxWidth: '440px',
+        maxWidth: vista === 'registro' ? '520px' : '440px',
         width: '100%',
         position: 'relative',
         zIndex: 1,
@@ -296,7 +313,7 @@ const Login = () => {
         )}
 
         {/* Form Content */}
-        <div onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit}>
           {/* Nombre (solo en registro) */}
           {vista === 'registro' && (
             <div style={{ marginBottom: '16px' }}>
@@ -505,7 +522,7 @@ const Login = () => {
             </div>
           )}
 
-          {/* Rol (solo en registro) */}
+          {/* 🎓 Selector de Rol (solo en registro) - VISUAL MEJORADO */}
           {vista === 'registro' && (
             <div style={{ marginBottom: '20px' }}>
               <label style={{
@@ -513,44 +530,123 @@ const Login = () => {
                 fontSize: '0.875rem',
                 fontWeight: '500',
                 color: '#374151',
-                marginBottom: '6px'
+                marginBottom: '12px'
               }}>
-                Rol *
+                Tipo de usuario *
               </label>
-              <select
-                name="rol"
-                value={formData.rol}
-                onChange={handleChange}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: '12px',
-                  border: '2px solid #e5e7eb',
-                  fontSize: '0.95rem',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  cursor: 'pointer'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#3b82f6';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#e5e7eb';
-                  e.target.style.boxShadow = 'none';
-                }}
-              >
-                <option value="estudiante">Estudiante</option>
-                <option value="profesor">Profesor</option>
-                <option value="administrativo">Administrativo</option>
-                <option value="externo">Externo</option>
-              </select>
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {rolesPublicos.map((rol) => {
+                  const IconComponent = rol.icon;
+                  const isSelected = formData.rol === rol.valor;
+                  
+                  return (
+                    <button
+                      key={rol.valor}
+                      type="button"
+                      onClick={() => setFormData({...formData, rol: rol.valor})}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: `2px solid ${isSelected ? rol.color : '#e5e7eb'}`,
+                        backgroundColor: isSelected ? `${rol.color}10` : 'white',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        textAlign: 'left',
+                        width: '100%'
+                      }}
+                      onMouseOver={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = rol.color;
+                          e.currentTarget.style.backgroundColor = `${rol.color}05`;
+                        }
+                      }}
+                      onMouseOut={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = '#e5e7eb';
+                          e.currentTarget.style.backgroundColor = 'white';
+                        }
+                      }}
+                    >
+                      {/* Icono */}
+                      <div style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '12px',
+                        backgroundColor: isSelected ? rol.color : `${rol.color}20`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <IconComponent size={24} color={isSelected ? 'white' : rol.color} />
+                      </div>
+                      
+                      {/* Texto */}
+                      <div style={{ flex: 1 }}>
+                        <p style={{
+                          fontWeight: '600',
+                          color: isSelected ? rol.color : '#1f2937',
+                          marginBottom: '4px',
+                          fontSize: '0.95rem'
+                        }}>
+                          {rol.label}
+                        </p>
+                        <p style={{
+                          fontSize: '0.75rem',
+                          color: '#6b7280',
+                          margin: 0
+                        }}>
+                          {rol.descripcion}
+                        </p>
+                      </div>
+                      
+                      {/* Checkmark */}
+                      {isSelected && (
+                        <div style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          backgroundColor: rol.color,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}>
+                          <CheckCircle size={16} color="white" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Nota informativa */}
+              <div style={{
+                marginTop: '12px',
+                padding: '12px',
+                backgroundColor: '#eff6ff',
+                borderRadius: '8px',
+                border: '1px solid #bfdbfe'
+              }}>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: '#1e40af',
+                  margin: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  ℹ️ Los permisos de <strong>Administrador</strong> son asignados por el sistema
+                </p>
+              </div>
             </div>
           )}
 
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={loading || (!emailValido && formData.correo)}
             style={{
               width: '100%',
@@ -604,7 +700,7 @@ const Login = () => {
               </>
             )}
           </button>
-        </div>
+        </form>
 
         {/* Toggle Register/Login */}
         <div style={{
