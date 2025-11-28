@@ -11,7 +11,6 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [emailValido, setEmailValido] = useState(true);
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -45,35 +44,10 @@ const Login = () => {
     }
   ];
 
-  const validarCorreoReal = async (email) => {
+  // ✅ VALIDACIÓN DE CORREO MÁS FLEXIBLE
+  const validarCorreoBasico = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) return false;
-
-    const dominiosValidos = [
-      'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com',
-      'usc.edu.co', 'estudiantes.usc.edu.co', 'icloud.com',
-      'live.com', 'msn.com', 'protonmail.com'
-    ];
-
-    const dominio = email.split('@')[1]?.toLowerCase();
-    const dominioValido = dominiosValidos.some(d => dominio === d || dominio?.endsWith(d));
-    const dominiosInvalidos = ['test.com', 'fake.com', 'example.com', 'prueba.com', 'temporal.com'];
-    const esDominioInvalido = dominiosInvalidos.some(d => dominio?.includes(d));
-
-    if (esDominioInvalido) return false;
-    return dominioValido || dominio?.includes('.');
-  };
-
-  const handleEmailBlur = async () => {
-    if (formData.correo) {
-      const esValido = await validarCorreoReal(formData.correo);
-      setEmailValido(esValido);
-      if (!esValido) {
-        setError('Por favor ingresa un correo electrónico válido y real');
-      } else {
-        setError('');
-      }
-    }
+    return emailRegex.test(email);
   };
 
   const handleSubmit = async (e) => {
@@ -82,63 +56,77 @@ const Login = () => {
     setError('');
     setSuccess('');
 
-    // ✅ VALIDACIÓN DE CORREO PARA REGISTRO Y RECUPERACIÓN
-    if (vista === 'registro' || vista === 'recuperar') {
-      const esValido = await validarCorreoReal(formData.correo);
-      if (!esValido) {
-        setError('Por favor ingresa un correo electrónico válido y existente');
-        setLoading(false);
-        return;
-      }
-    }
-
     try {
       if (vista === 'login') {
-        // ✅ FIX: Asegurarse de que ambos campos existan
+        // ✅ VALIDACIÓN BÁSICA
         if (!formData.correo || !formData.password) {
           throw new Error('Por favor completa todos los campos');
         }
 
+        if (!validarCorreoBasico(formData.correo)) {
+          throw new Error('Por favor ingresa un correo válido');
+        }
+
+        console.log('📤 Enviando login:', {
+          correo: formData.correo,
+          password: '***'
+        });
+
+        // ✅ ENVIAR LOGIN
         const response = await authAPI.login({
-          correo: formData.correo.trim(),
+          correo: formData.correo.trim().toLowerCase(),
           password: formData.password
         });
 
-        console.log('Respuesta del servidor:', response.data);
+        console.log('📥 Respuesta login:', response.data);
 
-        // ✅ Verificar que el servidor devuelva los datos correctamente
+        // ✅ EXTRAER DATOS DE LA RESPUESTA
         const { usuario, token } = response.data;
         
         if (!usuario || !token) {
           throw new Error('Error en la respuesta del servidor');
         }
 
-        // ✅ Guardar en localStorage
-        localStorage.setItem('token', token);
-        localStorage.setItem('usuario', JSON.stringify(usuario));
-        
-        // ✅ Actualizar el estado de Zustand
+        console.log('✅ Usuario logueado:', usuario);
+        console.log('🔑 Token recibido:', token.substring(0, 20) + '...');
+
+        // ✅ GUARDAR EN STORE Y LOCALSTORAGE
         login(usuario, token);
         
         setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
         
+        // ✅ REDIRIGIR AL DASHBOARD
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 1000);
+        
       } else if (vista === 'registro') {
         // ✅ VALIDACIONES DE REGISTRO
-        if (formData.nombre.length < 3) {
+        if (!formData.nombre || formData.nombre.length < 3) {
           throw new Error('El nombre debe tener al menos 3 caracteres');
         }
+
+        if (!validarCorreoBasico(formData.correo)) {
+          throw new Error('Por favor ingresa un correo válido');
+        }
+
         if (formData.password.length < 6) {
           throw new Error('La contraseña debe tener al menos 6 caracteres');
         }
         
-        // ✅ Verificar que solo se envíen roles permitidos
         if (!rolesPublicos.some(r => r.valor === formData.rol)) {
           throw new Error('Rol no válido');
         }
+
+        console.log('📤 Enviando registro:', {
+          nombre: formData.nombre,
+          correo: formData.correo,
+          rol: formData.rol
+        });
         
         await authAPI.registro({
           nombre: formData.nombre.trim(),
-          correo: formData.correo.trim(),
+          correo: formData.correo.trim().toLowerCase(),
           password: formData.password,
           rol: formData.rol
         });
@@ -157,8 +145,11 @@ const Login = () => {
         }, 2000);
         
       } else if (vista === 'recuperar') {
-  await authAPI.recuperarPassword(formData.correo.trim());
-  
+        if (!validarCorreoBasico(formData.correo)) {
+          throw new Error('Por favor ingresa un correo válido');
+        }
+
+        await authAPI.recuperarPassword(formData.correo.trim().toLowerCase());
         
         setSuccess('¡Correo de recuperación enviado! Revisa tu bandeja de entrada.');
         
@@ -174,7 +165,9 @@ const Login = () => {
         }, 3000);
       }
     } catch (err) {
-      console.error('Error completo:', err);
+      console.error('❌ Error completo:', err);
+      console.error('📋 Response data:', err.response?.data);
+      
       const mensajeError = err.response?.data?.mensaje || 
                           err.response?.data?.error || 
                           err.message || 
@@ -189,7 +182,6 @@ const Login = () => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     if (error) setError('');
-    if (name === 'correo' && !emailValido) setEmailValido(true);
   };
 
   return (
@@ -438,37 +430,26 @@ const Login = () => {
                 required
                 value={formData.correo}
                 onChange={handleChange}
-                onBlur={handleEmailBlur}
                 placeholder="tu@correo.com"
                 style={{
                   width: '100%',
                   padding: '12px 16px 12px 44px',
                   borderRadius: '12px',
-                  border: `2px solid ${!emailValido && formData.correo ? '#ef4444' : '#e5e7eb'}`,
+                  border: '2px solid #e5e7eb',
                   fontSize: '0.95rem',
                   outline: 'none',
                   transition: 'all 0.2s',
                   boxSizing: 'border-box'
                 }}
                 onFocus={(e) => {
-                  if (emailValido) {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e5e7eb';
+                  e.target.style.boxShadow = 'none';
                 }}
               />
-              {!emailValido && formData.correo && (
-                <AlertCircle 
-                  size={20} 
-                  color="#ef4444" 
-                  style={{ 
-                    position: 'absolute', 
-                    right: '12px', 
-                    top: '50%', 
-                    transform: 'translateY(-50%)' 
-                  }} 
-                />
-              )}
             </div>
           </div>
 
@@ -689,19 +670,17 @@ const Login = () => {
 
           <button
             type="submit"
-            disabled={loading || (!emailValido && formData.correo)}
+            disabled={loading}
             style={{
               width: '100%',
               padding: '14px',
               borderRadius: '12px',
               border: 'none',
-              background: loading || (!emailValido && formData.correo)
-                ? '#9ca3af' 
-                : 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+              background: loading ? '#9ca3af' : 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
               color: 'white',
               fontSize: '1rem',
               fontWeight: '600',
-              cursor: loading || (!emailValido && formData.correo) ? 'not-allowed' : 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
               transition: 'all 0.2s',
               boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.3)',
               display: 'flex',
@@ -710,7 +689,7 @@ const Login = () => {
               gap: '8px'
             }}
             onMouseOver={(e) => {
-              if (!loading && emailValido) {
+              if (!loading) {
                 e.currentTarget.style.transform = 'translateY(-2px)';
                 e.currentTarget.style.boxShadow = '0 6px 8px -1px rgba(37, 99, 235, 0.4)';
               }

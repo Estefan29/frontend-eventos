@@ -1,22 +1,28 @@
-import { useState } from 'react';
-import { User, Lock, Bell, Shield, Mail, Phone, Save, Camera, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Lock, Bell, Shield, Mail, Phone, Save, Camera, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { authAPI } from '../services/api';
 
 const Configuracion = () => {
+  const { usuario, actualizarUsuario } = useAuthStore();
+  
   const [activeTab, setActiveTab] = useState('perfil');
   const [loading, setLoading] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   
   const [perfilData, setPerfilData] = useState({
-    nombre: 'Juan Pérez',
-    correo: 'juan.perez@usc.edu.co',
-    telefono: '+57 300 123 4567',
-    carrera: 'Ingeniería de Sistemas'
+    nombre: '',
+    correo: '',
+    telefono: '',
+    carrera: ''
   });
 
   const [passwordData, setPasswordData] = useState({
-    actual: '',
-    nueva: '',
+    passwordActual: '',
+    passwordNuevo: '',
     confirmar: ''
   });
 
@@ -27,25 +33,88 @@ const Configuracion = () => {
     pushNotificaciones: false
   });
 
-  const handleGuardarPerfil = () => {
+  // 🔄 Cargar datos del usuario al montar el componente
+  useEffect(() => {
+    if (usuario) {
+      setPerfilData({
+        nombre: usuario.nombre || '',
+        correo: usuario.correo || '',
+        telefono: usuario.telefono || '',
+        carrera: usuario.carrera || ''
+      });
+    }
+  }, [usuario]);
+
+  // ✅ Guardar cambios de perfil
+  const handleGuardarPerfil = async () => {
     setLoading(true);
-    setTimeout(() => {
-      alert('Perfil actualizado exitosamente');
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await authAPI.actualizarPerfil({
+        nombre: perfilData.nombre,
+        telefono: perfilData.telefono,
+        carrera: perfilData.carrera
+      });
+
+      console.log('✅ Perfil actualizado:', response.data);
+
+      // Actualizar el usuario en el store
+      if (response.data.usuario) {
+        actualizarUsuario(response.data.usuario);
+      }
+
+      setSuccess('¡Perfil actualizado exitosamente!');
+      
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('❌ Error al actualizar perfil:', err);
+      setError(err.response?.data?.mensaje || 'Error al actualizar el perfil');
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
-  const handleCambiarPassword = () => {
-    if (passwordData.nueva !== passwordData.confirmar) {
-      alert('Las contraseñas no coinciden');
+  // 🔐 Cambiar contraseña
+  const handleCambiarPassword = async () => {
+    setError('');
+    setSuccess('');
+
+    // Validaciones
+    if (!passwordData.passwordActual || !passwordData.passwordNuevo || !passwordData.confirmar) {
+      setError('Por favor completa todos los campos');
       return;
     }
+
+    if (passwordData.passwordNuevo.length < 6) {
+      setError('La nueva contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    if (passwordData.passwordNuevo !== passwordData.confirmar) {
+      setError('Las contraseñas nuevas no coinciden');
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => {
-      alert('Contraseña cambiada exitosamente');
-      setPasswordData({ actual: '', nueva: '', confirmar: '' });
+
+    try {
+      await authAPI.cambiarPassword({
+        passwordActual: passwordData.passwordActual,
+        passwordNuevo: passwordData.passwordNuevo
+      });
+
+      setSuccess('¡Contraseña cambiada exitosamente!');
+      setPasswordData({ passwordActual: '', passwordNuevo: '', confirmar: '' });
+      
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('❌ Error al cambiar contraseña:', err);
+      setError(err.response?.data?.mensaje || 'Error al cambiar la contraseña');
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const tabs = [
@@ -66,6 +135,45 @@ const Configuracion = () => {
         </p>
       </div>
 
+      {/* Mensajes de Error/Éxito */}
+      {error && (
+        <div style={{
+          backgroundColor: '#fee2e2',
+          border: '2px solid #fecaca',
+          color: '#dc2626',
+          padding: '14px 16px',
+          borderRadius: '12px',
+          marginBottom: '20px',
+          fontSize: '0.875rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          animation: 'shake 0.5s'
+        }}>
+          <AlertCircle size={20} style={{ flexShrink: 0 }} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {success && (
+        <div style={{
+          backgroundColor: '#d1fae5',
+          border: '2px solid #a7f3d0',
+          color: '#065f46',
+          padding: '14px 16px',
+          borderRadius: '12px',
+          marginBottom: '20px',
+          fontSize: '0.875rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          animation: 'slideDown 0.5s'
+        }}>
+          <CheckCircle size={20} style={{ flexShrink: 0 }} />
+          <span>{success}</span>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: '24px' }}>
         {/* Tabs Sidebar */}
         <div style={{
@@ -80,7 +188,11 @@ const Configuracion = () => {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setError('');
+                  setSuccess('');
+                }}
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -139,7 +251,7 @@ const Configuracion = () => {
                   fontSize: '2.5rem',
                   fontWeight: 'bold'
                 }}>
-                  {perfilData.nombre.charAt(0)}
+                  {perfilData.nombre ? perfilData.nombre.charAt(0).toUpperCase() : usuario?.nombre?.charAt(0).toUpperCase() || 'U'}
                 </div>
                 <div>
                   <button
@@ -212,6 +324,9 @@ const Configuracion = () => {
                         }}
                       />
                     </div>
+                    <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                      El correo no se puede modificar
+                    </p>
                   </div>
 
                   <div>
@@ -224,6 +339,7 @@ const Configuracion = () => {
                         type="tel"
                         value={perfilData.telefono}
                         onChange={(e) => setPerfilData({...perfilData, telefono: e.target.value})}
+                        placeholder="Ej: 3001234567"
                         style={{
                           width: '100%',
                           padding: '12px 12px 12px 44px',
@@ -245,6 +361,7 @@ const Configuracion = () => {
                     type="text"
                     value={perfilData.carrera}
                     onChange={(e) => setPerfilData({...perfilData, carrera: e.target.value})}
+                    placeholder="Ej: Ingeniería de Sistemas"
                     style={{
                       width: '100%',
                       padding: '12px',
@@ -254,6 +371,21 @@ const Configuracion = () => {
                       boxSizing: 'border-box'
                     }}
                   />
+                </div>
+
+                <div style={{
+                  padding: '12px',
+                  backgroundColor: '#eff6ff',
+                  borderRadius: '8px',
+                  border: '1px solid #bfdbfe'
+                }}>
+                  <p style={{
+                    fontSize: '0.875rem',
+                    color: '#1e40af',
+                    margin: 0
+                  }}>
+                    ℹ️ <strong>Rol actual:</strong> {usuario?.rol || 'No especificado'}
+                  </p>
                 </div>
               </div>
 
@@ -268,7 +400,7 @@ const Configuracion = () => {
                   padding: '12px 24px',
                   borderRadius: '10px',
                   border: 'none',
-                  background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+                  background: loading ? '#9ca3af' : 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
                   color: 'white',
                   fontWeight: '600',
                   cursor: loading ? 'not-allowed' : 'pointer',
@@ -297,8 +429,9 @@ const Configuracion = () => {
                     <Lock size={20} color="#9ca3af" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                     <input
                       type={showCurrentPassword ? 'text' : 'password'}
-                      value={passwordData.actual}
-                      onChange={(e) => setPasswordData({...passwordData, actual: e.target.value})}
+                      value={passwordData.passwordActual}
+                      onChange={(e) => setPasswordData({...passwordData, passwordActual: e.target.value})}
+                      placeholder="Ingresa tu contraseña actual"
                       style={{
                         width: '100%',
                         padding: '12px 48px 12px 44px',
@@ -309,6 +442,7 @@ const Configuracion = () => {
                       }}
                     />
                     <button
+                      type="button"
                       onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                       style={{
                         position: 'absolute',
@@ -336,8 +470,9 @@ const Configuracion = () => {
                     <Lock size={20} color="#9ca3af" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                     <input
                       type={showNewPassword ? 'text' : 'password'}
-                      value={passwordData.nueva}
-                      onChange={(e) => setPasswordData({...passwordData, nueva: e.target.value})}
+                      value={passwordData.passwordNuevo}
+                      onChange={(e) => setPasswordData({...passwordData, passwordNuevo: e.target.value})}
+                      placeholder="Mínimo 6 caracteres"
                       style={{
                         width: '100%',
                         padding: '12px 48px 12px 44px',
@@ -348,6 +483,7 @@ const Configuracion = () => {
                       }}
                     />
                     <button
+                      type="button"
                       onClick={() => setShowNewPassword(!showNewPassword)}
                       style={{
                         position: 'absolute',
@@ -377,6 +513,7 @@ const Configuracion = () => {
                       type="password"
                       value={passwordData.confirmar}
                       onChange={(e) => setPasswordData({...passwordData, confirmar: e.target.value})}
+                      placeholder="Confirma la nueva contraseña"
                       style={{
                         width: '100%',
                         padding: '12px 12px 12px 44px',
@@ -401,7 +538,7 @@ const Configuracion = () => {
                   padding: '12px 24px',
                   borderRadius: '10px',
                   border: 'none',
-                  background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+                  background: loading ? '#9ca3af' : 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
                   color: 'white',
                   fontWeight: '600',
                   cursor: loading ? 'not-allowed' : 'pointer',
@@ -482,7 +619,10 @@ const Configuracion = () => {
               </div>
 
               <button
-                onClick={() => alert('Preferencias guardadas')}
+                onClick={() => {
+                  setSuccess('Preferencias de notificaciones guardadas');
+                  setTimeout(() => setSuccess(''), 3000);
+                }}
                 style={{
                   marginTop: '24px',
                   display: 'flex',
@@ -527,7 +667,7 @@ const Configuracion = () => {
 
               <div style={{ display: 'grid', gap: '16px' }}>
                 <button
-                  onClick={() => alert('Descargando datos...')}
+                  onClick={() => alert('Función de descarga de datos próximamente')}
                   style={{
                     padding: '16px',
                     borderRadius: '12px',
@@ -546,7 +686,7 @@ const Configuracion = () => {
                 <button
                   onClick={() => {
                     if (window.confirm('¿Estás seguro de que quieres eliminar tu cuenta? Esta acción no se puede deshacer.')) {
-                      alert('Cuenta eliminada');
+                      alert('Función de eliminación de cuenta próximamente');
                     }
                   }}
                   style={{
@@ -580,6 +720,15 @@ const Configuracion = () => {
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+          20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        @keyframes slideDown {
+          from { opacity: 0; transform: translateY(-10px); }
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>

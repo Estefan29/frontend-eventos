@@ -1,58 +1,92 @@
 import { useEffect, useState } from 'react';
-import { Calendar, Users, DollarSign, UserCheck, Clock, MapPin } from 'lucide-react';
+import { Calendar, Users, DollarSign, UserCheck, Clock, MapPin, Ticket, TrendingUp } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import StatCard from '../components/dashboard/StatCard';
 import Card from '../components/common/Card';
-import { eventosAPI, usuariosAPI, inscripcionesAPI, pagosAPI } from '../services/api';
+import { eventosAPI, inscripcionesAPI } from '../services/api';
 
 const Dashboard = () => {
   const { usuario } = useAuthStore();
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
+  
+  // Estados para Admin
+  const [statsAdmin, setStatsAdmin] = useState({
     eventos: 0,
     usuarios: 0,
     inscripciones: 0,
     ingresos: 0
   });
+
+  // Estados para Usuario Normal
+  const [statsUsuario, setStatsUsuario] = useState({
+    misInscripciones: 0,
+    eventosDisponibles: 0,
+    proximosEventos: 0
+  });
+
   const [eventosProximos, setEventosProximos] = useState([]);
-  const [actividadReciente, setActividadReciente] = useState([]);
+  const [misInscripcionesRecientes, setMisInscripcionesRecientes] = useState([]);
+
+  const esAdministrativo = usuario?.rol === 'administrativo';
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+  }, [usuario]);
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
 
-      // Cargar estadísticas en paralelo
+      if (esAdministrativo) {
+        await cargarDatosAdmin();
+      } else {
+        await cargarDatosUsuario();
+      }
+
+    } catch (error) {
+      console.error('Error al cargar datos del dashboard:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ========================================
+  // 👨‍💼 DASHBOARD DE ADMINISTRADOR
+  // ========================================
+  const cargarDatosAdmin = async () => {
+    try {
+      // Importar las APIs necesarias
+      const { usuariosAPI, pagosAPI } = await import('../services/api');
+
+      // Cargar todos los datos en paralelo
       const [eventosRes, usuariosRes, inscripcionesRes, pagosRes] = await Promise.all([
         eventosAPI.obtenerTodos().catch(() => ({ data: { data: { eventos: [] } } })),
         usuariosAPI.obtenerTodos().catch(() => ({ data: { data: { usuarios: [] } } })),
-        inscripcionesAPI.obtenerTodas().catch(() => ({ data: [] })),
+        inscripcionesAPI.obtenerTodas().catch(() => ({ data: { data: { inscripciones: [] } } })),
         pagosAPI.obtenerTodos().catch(() => ({ data: [] }))
       ]);
 
       // Extraer datos
       const eventos = eventosRes.data?.data?.eventos || eventosRes.data || [];
       const usuarios = usuariosRes.data?.data?.usuarios || usuariosRes.data || [];
-      const inscripciones = inscripcionesRes.data || [];
+      const inscripciones = inscripcionesRes.data?.data?.inscripciones || inscripcionesRes.data || [];
       const pagos = pagosRes.data || [];
 
-      // Calcular ingresos totales
+      console.log('📊 Datos Admin:', { eventos: eventos.length, usuarios: usuarios.length, inscripciones: inscripciones.length, pagos: pagos.length });
+
+      // Calcular ingresos totales de pagos completados
       const ingresosTotal = pagos
         .filter(p => p.estado === 'completado')
         .reduce((sum, p) => sum + (parseFloat(p.monto) || 0), 0);
 
-      // Actualizar stats
-      setStats({
+      setStatsAdmin({
         eventos: eventos.length,
         usuarios: usuarios.length,
         inscripciones: inscripciones.length,
         ingresos: Math.round(ingresosTotal)
       });
 
-      // Filtrar y ordenar eventos próximos (eventos futuros ordenados por fecha)
+      // Eventos próximos (admin ve todos)
       const ahora = new Date();
       const eventosOrdenados = eventos
         .filter(e => {
@@ -73,49 +107,84 @@ const Dashboard = () => {
 
       setEventosProximos(eventosOrdenados);
 
-      // Generar actividad reciente (últimas inscripciones y pagos)
-      const actividades = [];
-      
-      // Últimas inscripciones
-      const ultimasInscripciones = inscripciones
+    } catch (error) {
+      console.error('Error al cargar datos de admin:', error);
+    }
+  };
+
+  // ========================================
+  // 👤 DASHBOARD DE USUARIO NORMAL
+  // ========================================
+  const cargarDatosUsuario = async () => {
+    try {
+      // Obtener MIS inscripciones
+      const misInscripcionesRes = await inscripcionesAPI.misInscripciones().catch(() => []);
+      const misInscripciones = Array.isArray(misInscripcionesRes.data) 
+        ? misInscripcionesRes.data 
+        : misInscripcionesRes.data?.inscripciones || [];
+
+      console.log('📋 Mis inscripciones:', misInscripciones);
+
+      // Obtener TODOS los eventos disponibles
+      const eventosRes = await eventosAPI.obtenerTodos().catch(() => ({ data: { data: { eventos: [] } } }));
+      const todosEventos = eventosRes.data?.data?.eventos || eventosRes.data || [];
+
+      // Filtrar eventos futuros
+      const ahora = new Date();
+      const eventosFuturos = todosEventos.filter(e => {
+        if (!e.fecha) return false;
+        const fechaEvento = new Date(e.fecha);
+        return fechaEvento >= ahora;
+      });
+
+      // Contar inscripciones activas (no canceladas)
+      const inscripcionesActivas = misInscripciones.filter(
+        i => i.estado !== 'cancelada'
+      ).length;
+
+      setStatsUsuario({
+        misInscripciones: inscripcionesActivas,
+        eventosDisponibles: eventosFuturos.length,
+        proximosEventos: eventosFuturos.slice(0, 3).length
+      });
+
+      // Eventos próximos disponibles (no inscritos aún)
+      const idsEventosInscritos = misInscripciones
+        .filter(i => i.estado !== 'cancelada')
+        .map(i => i.id_evento_mongo);
+
+      const eventosDisponibles = eventosFuturos
+        .filter(e => !idsEventosInscritos.includes(e._id))
+        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+        .slice(0, 4)
+        .map(evento => ({
+          id: evento._id,
+          titulo: evento.titulo,
+          fecha: formatearFechaCorta(evento.fecha),
+          lugar: evento.lugar,
+          precio: evento.precio || 0,
+          color: obtenerColorAleatorio()
+        }));
+
+      setEventosProximos(eventosDisponibles);
+
+      // Mis inscripciones recientes con información del evento
+      const inscripcionesConEvento = misInscripciones
+        .filter(i => i.estado !== 'cancelada' && i.evento)
         .sort((a, b) => new Date(b.fecha_inscripcion) - new Date(a.fecha_inscripcion))
-        .slice(0, 3);
-      
-      ultimasInscripciones.forEach(i => {
-        actividades.push({
-          id: `ins-${i._id}`,
-          texto: `Nueva inscripción a ${i.id_evento?.titulo || 'evento'}`,
-          tiempo: calcularTiempoTranscurrido(i.fecha_inscripcion)
-        });
-      });
+        .slice(0, 3)
+        .map(i => ({
+          id: i.id,
+          titulo: i.evento?.titulo || 'Evento sin título',
+          fecha: formatearFechaCorta(i.evento?.fecha),
+          estado: i.estado,
+          lugar: i.evento?.lugar || 'Sin ubicación'
+        }));
 
-      // Últimos pagos completados
-      const ultimosPagos = pagos
-        .filter(p => p.estado === 'completado')
-        .sort((a, b) => new Date(b.fecha_pago) - new Date(a.fecha_pago))
-        .slice(0, 2);
-      
-      ultimosPagos.forEach(p => {
-        actividades.push({
-          id: `pago-${p.id}`,
-          texto: `Pago confirmado - $${Math.round(p.monto).toLocaleString()}`,
-          tiempo: calcularTiempoTranscurrido(p.fecha_pago)
-        });
-      });
-
-      // Ordenar por tiempo y tomar las 5 más recientes
-      actividades.sort((a, b) => {
-        const tiempoA = parsearTiempo(a.tiempo);
-        const tiempoB = parsearTiempo(b.tiempo);
-        return tiempoA - tiempoB;
-      });
-
-      setActividadReciente(actividades.slice(0, 5));
+      setMisInscripcionesRecientes(inscripcionesConEvento);
 
     } catch (error) {
-      console.error('Error al cargar datos del dashboard:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error al cargar datos de usuario:', error);
     }
   };
 
@@ -128,33 +197,18 @@ const Dashboard = () => {
     return `${dia} ${mes}`;
   };
 
-  const calcularTiempoTranscurrido = (fecha) => {
-    if (!fecha) return 'Hace un momento';
-    const ahora = new Date();
-    const fechaPasada = new Date(fecha);
-    const diffMs = ahora - fechaPasada;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Hace un momento';
-    if (diffMins < 60) return `${diffMins} min`;
-    if (diffHours < 24) return `${diffHours} hora${diffHours > 1 ? 's' : ''}`;
-    return `${diffDays} día${diffDays > 1 ? 's' : ''}`;
-  };
-
-  const parsearTiempo = (tiempo) => {
-    if (tiempo === 'Hace un momento') return 0;
-    const num = parseInt(tiempo);
-    if (tiempo.includes('min')) return num;
-    if (tiempo.includes('hora')) return num * 60;
-    if (tiempo.includes('día')) return num * 1440;
-    return 999999;
-  };
-
   const obtenerColorAleatorio = () => {
     const colores = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
     return colores[Math.floor(Math.random() * colores.length)];
+  };
+
+  const obtenerColorEstado = (estado) => {
+    const colores = {
+      'confirmada': '#10b981',
+      'pendiente': '#f59e0b',
+      'cancelada': '#ef4444'
+    };
+    return colores[estado] || '#6b7280';
   };
 
   if (loading) {
@@ -197,216 +251,364 @@ const Dashboard = () => {
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-        gap: '24px',
-        marginBottom: '32px'
-      }}>
-        <StatCard
-          icon={Calendar}
-          label="Eventos Activos"
-          value={stats.eventos}
-          color="#3b82f6"
-        />
-        <StatCard
-          icon={Users}
-          label="Usuarios Registrados"
-          value={stats.usuarios.toLocaleString()}
-          color="#8b5cf6"
-        />
-        <StatCard
-          icon={UserCheck}
-          label="Inscripciones"
-          value={stats.inscripciones}
-          color="#10b981"
-        />
-        <StatCard
-          icon={DollarSign}
-          label="Ingresos Totales"
-          value={`$${stats.ingresos.toLocaleString()}`}
-          color="#f59e0b"
-        />
-      </div>
-
-      {/* Content Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
-        gap: '24px'
-      }}>
-        {/* Eventos Próximos */}
-        <Card style={{ gridColumn: 'span 2' }}>
+      {/* ========================================
+          DASHBOARD DE ADMINISTRADOR
+          ======================================== */}
+      {esAdministrativo ? (
+        <>
+          {/* Stats Grid Admin */}
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '24px'
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '24px',
+            marginBottom: '32px'
           }}>
-            <h2 style={{
-              fontSize: '1.5rem',
-              fontWeight: 'bold',
-              color: '#1f2937',
-              margin: 0
-            }}>
-              Eventos Próximos
-            </h2>
+            <StatCard
+              icon={Calendar}
+              label="Eventos Activos"
+              value={statsAdmin.eventos}
+              color="#3b82f6"
+            />
+            <StatCard
+              icon={Users}
+              label="Usuarios Registrados"
+              value={statsAdmin.usuarios.toLocaleString()}
+              color="#8b5cf6"
+            />
+            <StatCard
+              icon={UserCheck}
+              label="Inscripciones"
+              value={statsAdmin.inscripciones}
+              color="#10b981"
+            />
+            <StatCard
+              icon={DollarSign}
+              label="Ingresos Totales"
+              value={`$${statsAdmin.ingresos.toLocaleString()}`}
+              color="#f59e0b"
+            />
           </div>
 
-          {eventosProximos.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
-              <Calendar size={48} color="#d1d5db" style={{ margin: '0 auto 12px' }} />
-              <p>No hay eventos próximos programados</p>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: '16px' }}>
-              {eventosProximos.map((evento) => (
-                <div
-                  key={evento.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    padding: '16px',
-                    backgroundColor: '#f9fafb',
-                    borderRadius: '16px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    border: '1px solid transparent'
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.backgroundColor = '#eff6ff';
-                    e.currentTarget.style.borderColor = '#3b82f6';
-                    e.currentTarget.style.transform = 'translateX(4px)';
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f9fafb';
-                    e.currentTarget.style.borderColor = 'transparent';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                  }}
-                >
-                  <div style={{
-                    width: '64px',
-                    height: '64px',
-                    borderRadius: '14px',
-                    backgroundColor: evento.color,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontWeight: 'bold',
-                    boxShadow: `0 4px 12px ${evento.color}40`,
-                    flexShrink: 0
-                  }}>
-                    <span style={{ fontSize: '1.5rem' }}>{evento.fecha.split(' ')[0]}</span>
-                    <span style={{ fontSize: '0.75rem' }}>{evento.fecha.split(' ')[1]}</span>
-                  </div>
-
-                  <div style={{ flex: 1 }}>
-                    <h3 style={{
-                      fontWeight: '600',
-                      color: '#1f2937',
-                      marginBottom: '6px',
-                      fontSize: '1rem'
-                    }}>
-                      {evento.titulo}
-                    </h3>
-                    <div style={{
-                      display: 'flex',
-                      gap: '16px',
-                      fontSize: '0.875rem',
-                      color: '#6b7280'
-                    }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <MapPin size={14} />
-                        {evento.lugar}
-                      </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Users size={14} />
-                        {evento.inscritos} inscritos
-                      </span>
-                    </div>
-                  </div>
-
-                  <Clock size={20} color="#9ca3af" />
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {/* Actividad Reciente */}
-        <Card>
-          <h2 style={{
-            fontSize: '1.5rem',
-            fontWeight: 'bold',
-            color: '#1f2937',
-            marginBottom: '24px'
+          {/* Content Grid Admin */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+            gap: '24px'
           }}>
-            Actividad Reciente
-          </h2>
+            {/* Eventos Próximos */}
+            <Card style={{ gridColumn: 'span 2' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '24px'
+              }}>
+                <h2 style={{
+                  fontSize: '1.5rem',
+                  fontWeight: 'bold',
+                  color: '#1f2937',
+                  margin: 0
+                }}>
+                  Eventos Próximos
+                </h2>
+              </div>
 
-          {actividadReciente.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
-              <Clock size={48} color="#d1d5db" style={{ margin: '0 auto 12px' }} />
-              <p>No hay actividad reciente</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {actividadReciente.map((actividad) => (
-                <div
-                  key={actividad.id}
-                  style={{
-                    display: 'flex',
-                    gap: '12px',
-                    padding: '12px',
-                    borderLeft: '3px solid #3b82f6',
-                    backgroundColor: '#eff6ff',
-                    borderRadius: '0 12px 12px 0',
-                    transition: 'all 0.2s',
-                    cursor: 'pointer'
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.backgroundColor = '#dbeafe';
-                    e.currentTarget.style.paddingLeft = '16px';
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.backgroundColor = '#eff6ff';
-                    e.currentTarget.style.paddingLeft = '12px';
-                  }}
-                >
-                  <div style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: '#3b82f6',
-                    marginTop: '6px',
-                    flexShrink: 0
-                  }}></div>
-                  <div style={{ flex: 1 }}>
-                    <p style={{
-                      fontSize: '0.875rem',
-                      fontWeight: '500',
-                      color: '#1f2937',
-                      marginBottom: '4px'
-                    }}>
-                      {actividad.texto}
-                    </p>
-                    <p style={{
-                      fontSize: '0.75rem',
-                      color: '#6b7280'
-                    }}>
-                      Hace {actividad.tiempo}
-                    </p>
-                  </div>
+              {eventosProximos.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  <Calendar size={48} color="#d1d5db" style={{ margin: '0 auto 12px' }} />
+                  <p>No hay eventos próximos programados</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '16px' }}>
+                  {eventosProximos.map((evento) => (
+                    <div
+                      key={evento.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        padding: '16px',
+                        backgroundColor: '#f9fafb',
+                        borderRadius: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        border: '1px solid transparent'
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#eff6ff';
+                        e.currentTarget.style.borderColor = '#3b82f6';
+                        e.currentTarget.style.transform = 'translateX(4px)';
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                        e.currentTarget.style.borderColor = 'transparent';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }}
+                    >
+                      <div style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '14px',
+                        backgroundColor: evento.color,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        boxShadow: `0 4px 12px ${evento.color}40`,
+                        flexShrink: 0
+                      }}>
+                        <span style={{ fontSize: '1.5rem' }}>{evento.fecha.split(' ')[0]}</span>
+                        <span style={{ fontSize: '0.75rem' }}>{evento.fecha.split(' ')[1]}</span>
+                      </div>
+
+                      <div style={{ flex: 1 }}>
+                        <h3 style={{
+                          fontWeight: '600',
+                          color: '#1f2937',
+                          marginBottom: '6px',
+                          fontSize: '1rem'
+                        }}>
+                          {evento.titulo}
+                        </h3>
+                        <div style={{
+                          display: 'flex',
+                          gap: '16px',
+                          fontSize: '0.875rem',
+                          color: '#6b7280'
+                        }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <MapPin size={14} />
+                            {evento.lugar}
+                          </span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Users size={14} />
+                            {evento.inscritos} inscritos
+                          </span>
+                        </div>
+                      </div>
+
+                      <Clock size={20} color="#9ca3af" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* ========================================
+              DASHBOARD DE USUARIO NORMAL
+              ======================================== */}
+          
+          {/* Stats Grid Usuario */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '24px',
+            marginBottom: '32px'
+          }}>
+            <StatCard
+              icon={Ticket}
+              label="Mis Inscripciones"
+              value={statsUsuario.misInscripciones}
+              color="#3b82f6"
+            />
+            <StatCard
+              icon={Calendar}
+              label="Eventos Disponibles"
+              value={statsUsuario.eventosDisponibles}
+              color="#10b981"
+            />
+            <StatCard
+              icon={TrendingUp}
+              label="Próximos Eventos"
+              value={statsUsuario.proximosEventos}
+              color="#8b5cf6"
+            />
+          </div>
+
+          {/* Content Grid Usuario */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+            gap: '24px'
+          }}>
+            {/* Eventos Disponibles */}
+            <Card>
+              <h2 style={{
+                fontSize: '1.5rem',
+                fontWeight: 'bold',
+                color: '#1f2937',
+                marginBottom: '24px'
+              }}>
+                Eventos Disponibles
+              </h2>
+
+              {eventosProximos.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  <Calendar size={48} color="#d1d5db" style={{ margin: '0 auto 12px' }} />
+                  <p>No hay eventos disponibles</p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '16px' }}>
+                  {eventosProximos.map((evento) => (
+                    <div
+                      key={evento.id}
+                      style={{
+                        padding: '16px',
+                        backgroundColor: '#f9fafb',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        border: '2px solid transparent'
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#eff6ff';
+                        e.currentTarget.style.borderColor = '#3b82f6';
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                        e.currentTarget.style.borderColor = 'transparent';
+                      }}
+                      onClick={() => window.location.href = '/eventos'}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+                        <h3 style={{
+                          fontWeight: '600',
+                          color: '#1f2937',
+                          fontSize: '1rem',
+                          margin: 0
+                        }}>
+                          {evento.titulo}
+                        </h3>
+                        <span style={{
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          color: evento.precio > 0 ? '#f59e0b' : '#10b981',
+                          backgroundColor: evento.precio > 0 ? '#fef3c7' : '#d1fae5',
+                          padding: '4px 12px',
+                          borderRadius: '8px'
+                        }}>
+                          {evento.precio > 0 ? `$${evento.precio.toLocaleString()}` : 'Gratis'}
+                        </span>
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        gap: '16px',
+                        fontSize: '0.875rem',
+                        color: '#6b7280'
+                      }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Calendar size={14} />
+                          {evento.fecha}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <MapPin size={14} />
+                          {evento.lugar}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Mis Inscripciones Recientes */}
+            <Card>
+              <h2 style={{
+                fontSize: '1.5rem',
+                fontWeight: 'bold',
+                color: '#1f2937',
+                marginBottom: '24px'
+              }}>
+                Mis Inscripciones
+              </h2>
+
+              {misInscripcionesRecientes.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  <Ticket size={48} color="#d1d5db" style={{ margin: '0 auto 12px' }} />
+                  <p>No tienes inscripciones activas</p>
+                  <button
+                    onClick={() => window.location.href = '/eventos'}
+                    style={{
+                      marginTop: '16px',
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+                      color: 'white',
+                      fontWeight: '600',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Explorar Eventos
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  {misInscripcionesRecientes.map((inscripcion) => (
+                    <div
+                      key={inscripcion.id}
+                      style={{
+                        padding: '16px',
+                        backgroundColor: '#f9fafb',
+                        borderRadius: '12px',
+                        borderLeft: `4px solid ${obtenerColorEstado(inscripcion.estado)}`,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#eff6ff';
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                      }}
+                      onClick={() => window.location.href = '/mis-inscripciones'}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+                        <h3 style={{
+                          fontWeight: '600',
+                          color: '#1f2937',
+                          fontSize: '0.95rem',
+                          margin: 0
+                        }}>
+                          {inscripcion.titulo}
+                        </h3>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: '600',
+                          color: obtenerColorEstado(inscripcion.estado),
+                          textTransform: 'uppercase'
+                        }}>
+                          {inscripcion.estado}
+                        </span>
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        gap: '16px',
+                        fontSize: '0.875rem',
+                        color: '#6b7280'
+                      }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Calendar size={14} />
+                          {inscripcion.fecha}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <MapPin size={14} />
+                          {inscripcion.lugar}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
 
       <style>{`
         @keyframes fadeIn {

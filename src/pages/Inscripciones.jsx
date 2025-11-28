@@ -22,7 +22,7 @@ const Inscripciones = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+  }, [filtroEstado]);
 
   const cargarDatos = async () => {
     try {
@@ -33,17 +33,48 @@ const Inscripciones = () => {
       
       // Cargar inscripciones, eventos y usuarios en paralelo
       const [inscripcionesRes, eventosRes, usuariosRes] = await Promise.all([
-        inscripcionesAPI.obtenerTodas(params),
-        eventosAPI.obtenerTodos(),
-        usuariosAPI.obtenerTodos()
+        inscripcionesAPI.obtenerTodas(params).catch(err => {
+          console.error('Error cargando inscripciones:', err);
+          return { data: [] };
+        }),
+        eventosAPI.obtenerTodos().catch(err => {
+          console.error('Error cargando eventos:', err);
+          return { data: { data: { eventos: [] } } };
+        }),
+        usuariosAPI.obtenerTodos().catch(err => {
+          console.error('Error cargando usuarios:', err);
+          return { data: { data: { usuarios: [] } } };
+        })
       ]);
       
-      setInscripciones(inscripcionesRes.data || []);
-      setEventos(eventosRes.data.data?.eventos || []);
-      setUsuarios(usuariosRes.data.data?.usuarios || []);
+      // Manejo seguro de las respuestas
+      const inscripcionesData = Array.isArray(inscripcionesRes.data) 
+        ? inscripcionesRes.data 
+        : inscripcionesRes.data?.data?.inscripciones || [];
+      
+      const eventosData = eventosRes.data?.data?.eventos || 
+                          eventosRes.data?.eventos || 
+                          (Array.isArray(eventosRes.data) ? eventosRes.data : []);
+      
+      const usuariosData = usuariosRes.data?.data?.usuarios || 
+                           usuariosRes.data?.usuarios || 
+                           (Array.isArray(usuariosRes.data) ? usuariosRes.data : []);
+      
+      console.log('Datos cargados:', { 
+        inscripciones: inscripcionesData.length, 
+        eventos: eventosData.length, 
+        usuarios: usuariosData.length 
+      });
+      
+      setInscripciones(inscripcionesData);
+      setEventos(eventosData);
+      setUsuarios(usuariosData);
     } catch (error) {
       console.error('Error al cargar datos:', error);
-      // No mostrar alert para mejor UX
+      // Establecer arrays vacíos en caso de error
+      setInscripciones([]);
+      setEventos([]);
+      setUsuarios([]);
     } finally {
       setLoading(false);
     }
@@ -56,6 +87,7 @@ const Inscripciones = () => {
         alert('Inscripción cancelada exitosamente');
         cargarDatos();
       } catch (error) {
+        console.error('Error al cancelar:', error);
         alert('Error al cancelar: ' + (error.response?.data?.mensaje || error.message));
       }
     }
@@ -63,11 +95,12 @@ const Inscripciones = () => {
 
   const handleConfirmar = async (id) => {
     try {
-      // Aquí deberías tener un endpoint para confirmar
-      // Por ahora simularemos con una actualización
+      // Si tienes un endpoint específico para confirmar, úsalo aquí
+      // await inscripcionesAPI.confirmar(id);
       alert('Inscripción confirmada exitosamente');
       cargarDatos();
     } catch (error) {
+      console.error('Error al confirmar:', error);
       alert('Error al confirmar: ' + (error.response?.data?.mensaje || error.message));
     }
   };
@@ -86,13 +119,16 @@ const Inscripciones = () => {
       setFormData({ id_evento: '', id_usuario: '' });
       cargarDatos();
     } catch (error) {
+      console.error('Error al crear inscripción:', error);
       alert('Error al crear inscripción: ' + (error.response?.data?.mensaje || error.message));
     }
   };
 
   const inscripcionesFiltradas = inscripciones.filter(inscripcion => {
-    const nombreUsuario = inscripcion.id_usuario?.nombre || '';
-    const tituloEvento = inscripcion.id_evento?.titulo || '';
+    if (!inscripcion) return false;
+    
+    const nombreUsuario = inscripcion.id_usuario?.nombre || inscripcion.usuario?.nombre || '';
+    const tituloEvento = inscripcion.id_evento?.titulo || inscripcion.evento?.titulo || '';
     
     const matchBusqueda = nombreUsuario.toLowerCase().includes(busqueda.toLowerCase()) ||
                           tituloEvento.toLowerCase().includes(busqueda.toLowerCase());
@@ -108,22 +144,25 @@ const Inscripciones = () => {
     return estados[estado] || estados.pendiente;
   };
 
-  const getPagoEstadoInfo = (estado) => {
-    const estados = {
-      pendiente: { color: '#fbbf24', label: 'Pendiente' },
-      completado: { color: '#10b981', label: 'Completado' },
-      reembolsado: { color: '#6366f1', label: 'Reembolsado' }
-    };
-    return estados[estado] || estados.pendiente;
-  };
-
   const stats = {
     total: inscripciones.length,
-    confirmadas: inscripciones.filter(i => i.estado === 'confirmada').length,
-    pendientes: inscripciones.filter(i => i.estado === 'pendiente').length,
-    canceladas: inscripciones.filter(i => i.estado === 'cancelada').length
+    confirmadas: inscripciones.filter(i => i?.estado === 'confirmada').length,
+    pendientes: inscripciones.filter(i => i?.estado === 'pendiente').length,
+    canceladas: inscripciones.filter(i => i?.estado === 'cancelada').length
   };
 
+  const formatearFecha = (fecha) => {
+    if (!fecha) return '-';
+    try {
+      return new Date(fecha).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    } catch {
+      return '-';
+    }
+  };
   return (
     <div style={{ animation: 'fadeIn 0.5s ease-in', fontFamily: 'system-ui' }}>
       {/* Header */}
