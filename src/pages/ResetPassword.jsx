@@ -29,8 +29,10 @@ const ResetPassword = () => {
 
       try {
         console.log('🔍 Validando token:', token);
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
         
-        const response = await fetch(`http://localhost:4000/api/auth/validate-reset-token/${token}`);
+        response = await fetch(`${API_URL}/auth/validate-reset-token/${token}`);
         const data = await response.json();
         
         console.log('📥 Respuesta validación:', data);
@@ -81,7 +83,7 @@ const ResetPassword = () => {
     try {
       console.log('🔄 Enviando nueva contraseña...');
       
-      const response = await fetch(`http://localhost:4000/api/auth/reset-password/${token}`, {
+        response = await fetch(`${API_URL}/auth/reset-password/${token}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
